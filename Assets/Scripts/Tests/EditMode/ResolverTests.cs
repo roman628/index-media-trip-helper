@@ -74,14 +74,46 @@ namespace MediaTrip.Tests
             Assert.IsNull(added.Number);
             Assert.AreEqual(PlanItemStatus.Captured, added.Status);
 
-            // Video 4 was shot but its ch.2 hero (ph-007) is still missing -> partial by default.
+            // Video 4 was shot; its ch.2 hero (ph-007) is still missing. Photos are candidates,
+            // not requirements, so the video is Captured and the count is exposed separately.
             var v4 = plan.FindItem("v-004");
             Assert.AreEqual(2, v4.PhotoRefsTotal);
             Assert.AreEqual(1, v4.PhotoRefsCaptured);
-            Assert.AreEqual(PlanItemStatus.PartiallyCaptured, v4.Status);
+            Assert.AreEqual("1 of 2", v4.PhotoProgress);
+            Assert.AreEqual(PlanItemStatus.Captured, v4.Status);
+            Assert.IsNull(plan.FindItem("v-a001").PhotoProgress);
 
-            var planNoPhotos = PlanResolver.Resolve(Fixtures.LoadSample(), new ResolveOptions { PhotoRefsAffectVideoStatus = false });
-            Assert.AreEqual(PlanItemStatus.Captured, planNoPhotos.FindItem("v-004").Status);
+            var planPhotoRule = PlanResolver.Resolve(Fixtures.LoadSample(), new ResolveOptions { PhotoRefsAffectVideoStatus = true });
+            Assert.AreEqual(PlanItemStatus.PartiallyCaptured, planPhotoRule.FindItem("v-004").Status, "opt-in switch still works");
+        }
+
+        [Test]
+        public void Amendments_ApplyInTimestampOrder_NotListOrder()
+        {
+            // Hand-edited file: the combine that uses split result "a" is listed BEFORE the split.
+            var d = Fixtures.SyntheticTrip();
+            // "earlier" is 09:00 at UTC-4 = 13:00Z; "later" is 15:00Z. Offsets must be honoured, not just string order.
+            d.Captures.Amendments.Add(new Amendment { Id = "later", Type = AmendmentType.Combine, At = "2026-09-15T15:00:00Z", Targets = new List<string> { "a", "v2" }, Results = new List<string> { "c" }, NewTitle = "C" });
+            d.Captures.Amendments.Add(new Amendment { Id = "earlier", Type = AmendmentType.Split, At = "2026-09-15T09:00:00-04:00", Targets = new List<string> { "v1" }, Results = new List<string> { "a", "b" }, NewTitles = new List<string> { "A", "B" } });
+            var plan = PlanResolver.Resolve(d);
+            Assert.IsEmpty(plan.Issues, string.Join("\n", plan.Issues));
+            Assert.AreEqual("c", plan.Resolve("v2").Single().Id);
+            CollectionAssert.AreEqual(new[] { "c", "b" }, plan.Resolve("v1").Select(i => i.Id).ToList());
+            CollectionAssert.AreEqual(new[] { "earlier", "later" }, PlanResolver.OrderedAmendments(d.Captures.Amendments).Select(a => a.Id).ToList());
+        }
+
+        [Test]
+        public void Amendments_MissingTimestamp_GoLast_TiesKeepListOrder()
+        {
+            var list = new List<Amendment>
+            {
+                new Amendment { Id = "x", At = null },
+                new Amendment { Id = "y", At = "2026-09-15T10:00:00Z" },
+                new Amendment { Id = "z", At = "2026-09-15T10:00:00Z" },
+                new Amendment { Id = "w", At = "not a date" },
+                new Amendment { Id = "v", At = "2026-09-15T09:00:00Z" },
+            };
+            CollectionAssert.AreEqual(new[] { "v", "y", "z", "x", "w" }, PlanResolver.OrderedAmendments(list).Select(a => a.Id).ToList());
         }
 
         [Test]

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using MediaTrip.Authoring;
 using MediaTrip.Model;
 using MediaTrip.Persistence;
 using MediaTrip.Query;
@@ -33,9 +34,13 @@ namespace MediaTrip.Session
 
         private readonly HashSet<DocumentKind> _dirtyDocs = new HashSet<DocumentKind>();
         private readonly HashSet<string> _dirtyOutlineBooks = new HashSet<string>();
+        private readonly HashSet<string> _deletedOutlineFiles = new HashSet<string>();
         private ResolvedPlan _plan;
         private TripQueries _queries;
         private TripSearch _search;
+        private ShotListEditor _planEditor;
+        private OutlineEditor _outlineEditor;
+        private PeopleEditor _peopleEditor;
 
         public TripSession(TripData data, Func<double> clock = null)
         {
@@ -60,6 +65,46 @@ namespace MediaTrip.Session
         public ResolvedPlan Plan => _plan ?? (_plan = PlanResolver.Resolve(Data, ResolveOptions));
         public TripQueries Queries => _queries ?? (_queries = new TripQueries(Data, Plan));
         public TripSearch Search => _search ?? (_search = new TripSearch(Data, Plan, SearchOptions));
+
+        // ------------------------------------------------------------------
+        // Authoring editors (structural edits to the plan documents)
+        // ------------------------------------------------------------------
+
+        /// <summary>Books, chapters, videos, master photos, numbering.</summary>
+        public ShotListEditor PlanEditor => _planEditor ?? (_planEditor = new ShotListEditor(this));
+        /// <summary>Outline chapters, sections, notes, bullets.</summary>
+        public OutlineEditor Outline => _outlineEditor ?? (_outlineEditor = new OutlineEditor(this));
+        /// <summary>The people registry.</summary>
+        public PeopleEditor People => _peopleEditor ?? (_peopleEditor = new PeopleEditor(this));
+
+        /// <summary>Edit trip identity (client, program, phase, location): the trip's "name".</summary>
+        public void UpdateIdentity(Action<TripIdentity> edit)
+        {
+            if (Data.Trip.Identity == null) Data.Trip.Identity = new TripIdentity();
+            edit(Data.Trip.Identity);
+            MarkDirty(DocumentKind.Trip);
+        }
+
+        public void UpdateDates(Action<TripDates> edit)
+        {
+            if (Data.Trip.Dates == null) Data.Trip.Dates = new TripDates();
+            edit(Data.Trip.Dates);
+            MarkDirty(DocumentKind.Trip);
+        }
+
+        /// <summary>Drop a book's outline document; its file is deleted on the next save.</summary>
+        public void RemoveOutline(string bookId)
+        {
+            if (!Data.Outlines.Remove(bookId)) return;
+            if (Data.OutlineFileNames.TryGetValue(bookId, out var file))
+            {
+                _deletedOutlineFiles.Add(file);
+                Data.OutlineFileNames.Remove(bookId);
+            }
+            _dirtyOutlineBooks.Remove(bookId);
+            Invalidate();
+            Autosaver.MarkDirty();
+        }
 
         // ------------------------------------------------------------------
         // Dirty tracking and saving
@@ -122,8 +167,11 @@ namespace MediaTrip.Session
             if (_dirtyDocs.Contains(DocumentKind.Captures)) TripSaver.SaveCaptures(Data);
             foreach (var bookId in _dirtyOutlineBooks.ToList())
                 if (Data.Outlines.ContainsKey(bookId)) TripSaver.SaveOutline(Data, bookId);
+            foreach (var file in _deletedOutlineFiles.ToList())
+                if (!Data.OutlineFileNames.ContainsValue(file)) TripSaver.DeleteOutlineFile(Data, file);
             _dirtyDocs.Clear();
             _dirtyOutlineBooks.Clear();
+            _deletedOutlineFiles.Clear();
         }
 
         private void Invalidate()
@@ -390,36 +438,5 @@ namespace MediaTrip.Session
             MarkDirty(DocumentKind.Outline, bookId);
         }
 
-        // ------------------------------------------------------------------
-        // Shot list authoring (building the plan before the trip, not recording captures)
-        // ------------------------------------------------------------------
-
-        /// <summary>Authoring only: add a planned video with the next continuous number. Not for recording captures.</summary>
-        public Video AuthorPlannedVideo(string title, string bookId, string chapterId)
-        {
-            var v = new Video
-            {
-                Id = Ids.New("v"),
-                Number = Data.ShotList.Videos.Count == 0 ? 1 : Data.ShotList.Videos.Max(x => x.Number) + 1,
-                Title = title, BookId = bookId, ChapterId = chapterId,
-            };
-            Data.ShotList.Videos.Add(v);
-            MarkDirty(DocumentKind.ShotList);
-            return v;
-        }
-
-        /// <summary>Authoring only: add a master-list photo at the end of its book's list.</summary>
-        public Photo AuthorPlannedPhoto(string description, string bookId, HeroType heroType = HeroType.None, string chapterId = null)
-        {
-            var inBook = Data.ShotList.Photos.Where(p => p.BookId == bookId).ToList();
-            var p = new Photo
-            {
-                Id = Ids.New("ph"), BookId = bookId, ChapterId = chapterId, HeroType = heroType, Description = description,
-                Order = inBook.Count == 0 ? 1 : inBook.Max(x => x.Order) + 1,
-            };
-            Data.ShotList.Photos.Add(p);
-            MarkDirty(DocumentKind.ShotList);
-            return p;
-        }
     }
 }

@@ -13,9 +13,13 @@ namespace MediaTrip.Status
     {
         /// <summary>
         /// When true, a captured video whose photoRefs are not all captured yet reports
-        /// PartiallyCaptured instead of Captured. Off, video status ignores photos entirely.
+        /// PartiallyCaptured instead of Captured. OFF by default: photoRefs are photos that
+        /// can be shot with that setup, not requirements, and a video that was shot must not sit
+        /// in the outstanding list because an optional photo was skipped. The counts are still
+        /// exposed on <see cref="PlanItem.PhotoRefsCaptured"/> / <see cref="PlanItem.PhotoRefsTotal"/>.
+        /// Required hero shots are tracked by the Heroes query instead.
         /// </summary>
-        public bool PhotoRefsAffectVideoStatus = true;
+        public bool PhotoRefsAffectVideoStatus = false;
 
         public static readonly ResolveOptions Default = new ResolveOptions();
     }
@@ -70,8 +74,12 @@ namespace MediaTrip.Status
         /// <summary>Leaf items this resolves to (itself when not superseded).</summary>
         public List<PlanItem> ResolvedItems = new List<PlanItem>();
 
+        /// <summary>Photos shootable with this setup that are not dropped.</summary>
         public int PhotoRefsTotal;
+        /// <summary>How many of those have been captured anywhere.</summary>
         public int PhotoRefsCaptured;
+        /// <summary>"3 of 5", or null when the item lists no photos.</summary>
+        public string PhotoProgress => PhotoRefsTotal == 0 ? null : PhotoRefsCaptured + " of " + PhotoRefsTotal;
 
         public bool IsSuperseded => ResultIds.Count > 0;
         public bool IsDropped => DropAmendment != null;
@@ -189,10 +197,33 @@ namespace MediaTrip.Status
 
     /// <summary>
     /// Applies amendments and captures to the immutable shot list and derives every status.
-    /// Amendments are applied in list order (the order they were recorded).
+    /// Amendments are applied in timestamp order (<see cref="Amendment.At"/>), tie-breaking by
+    /// list index; entries with a missing or unparseable timestamp come last, in list order.
     /// </summary>
     public static class PlanResolver
     {
+        /// <summary>Amendments in the order they are applied. Exposed so UIs list them the same way.</summary>
+        public static List<Amendment> OrderedAmendments(IEnumerable<Amendment> amendments)
+        {
+            return amendments
+                .Select((a, i) => (a, i, t: ParseTimestamp(a.At)))
+                .OrderBy(x => x.t.HasValue ? 0 : 1)
+                .ThenBy(x => x.t ?? DateTimeOffset.MaxValue)
+                .ThenBy(x => x.i)
+                .Select(x => x.a)
+                .ToList();
+        }
+
+        /// <summary>ISO-8601 (with or without offset) to a comparable instant; null when unparseable.</summary>
+        public static DateTimeOffset? ParseTimestamp(string at)
+        {
+            if (string.IsNullOrWhiteSpace(at)) return null;
+            if (DateTimeOffset.TryParse(at, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AllowWhiteSpaces, out var dto))
+                return dto;
+            return null;
+        }
+
         public static ResolvedPlan Resolve(TripData data, ResolveOptions options = null)
         {
             options = options ?? ResolveOptions.Default;
@@ -238,8 +269,8 @@ namespace MediaTrip.Status
                 plan.Register(new PhotoItem { Photo = p, Description = p.Description });
             }
 
-            // 3. Amendments, in recorded order.
-            foreach (var am in data.Captures.Amendments)
+            // 3. Amendments, in timestamp order (list index breaks ties).
+            foreach (var am in OrderedAmendments(data.Captures.Amendments))
                 ApplyAmendment(plan, am, virtualByAnchor, added);
 
             // 4. Captures.

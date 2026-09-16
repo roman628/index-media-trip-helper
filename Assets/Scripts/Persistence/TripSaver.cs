@@ -50,6 +50,14 @@ namespace MediaTrip.Persistence
             WriteDocument(outline, Path.Combine(dir, fileName));
         }
 
+        /// <summary>Delete an outline file that is no longer part of the trip (after RemoveOutline).</summary>
+        public static void DeleteOutlineFile(TripData data, string fileName, string folder = null)
+        {
+            folder = ResolveFolder(data, folder);
+            var path = Path.Combine(folder, TripLoader.OutlinesDir, fileName);
+            if (File.Exists(path)) File.Delete(path);
+        }
+
         /// <summary>Existing file name if the outline was loaded from disk, else book-N.json, else bookId.json.</summary>
         public static string OutlineFileName(TripData data, string bookId)
         {

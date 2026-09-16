@@ -156,5 +156,56 @@ namespace MediaTrip.Persistence
             var folder = Path.Combine(libraryRoot ?? TripPaths.LibraryRoot, TripPaths.SanitizeFileName(tripId));
             if (Directory.Exists(folder)) Directory.Delete(folder, true);
         }
+
+        /// <summary>
+        /// Copy a trip under a new tripId (typically to reuse a plan for the next phase). Every
+        /// document's tripId is rewritten. Captures, amendments and assignments are dropped
+        /// unless <paramref name="includeCaptures"/>; entity IDs inside the plan are kept so
+        /// outlines and photo refs keep lining up. Returns the saved copy.
+        /// </summary>
+        public static TripData DuplicateTrip(string tripId, bool includeCaptures = false, Action<TripIdentity> editIdentity = null, string libraryRoot = null)
+        {
+            var root = libraryRoot ?? TripPaths.LibraryRoot;
+            var src = TripLoader.Load(Path.Combine(root, TripPaths.SanitizeFileName(tripId)));
+            return DuplicateTrip(src, includeCaptures, editIdentity, root);
+        }
+
+        public static TripData DuplicateTrip(TripData src, bool includeCaptures = false, Action<TripIdentity> editIdentity = null, string libraryRoot = null)
+        {
+            var copy = new TripData
+            {
+                Trip = TripJson.Clone(src.Trip),
+                ShotList = TripJson.Clone(src.ShotList),
+                Captures = includeCaptures ? TripJson.Clone(src.Captures) : new CapturesDocument(),
+            };
+            foreach (var kv in src.Outlines) copy.Outlines[kv.Key] = TripJson.Clone(kv.Value);
+            foreach (var kv in src.OutlineFileNames) copy.OutlineFileNames[kv.Key] = kv.Value;
+
+            var newId = Ids.New("trip");
+            copy.Trip.TripId = newId;
+            copy.ShotList.TripId = newId;
+            copy.Captures.TripId = newId;
+            foreach (var o in copy.Outlines.Values) o.TripId = newId;
+            if (copy.Trip.Identity == null) copy.Trip.Identity = new TripIdentity();
+            editIdentity?.Invoke(copy.Trip.Identity);
+
+            copy.FolderPath = Path.Combine(libraryRoot ?? TripPaths.LibraryRoot, TripPaths.SanitizeFileName(newId));
+            TripSaver.SaveAll(copy);
+            return copy;
+        }
+
+        /// <summary>
+        /// "Rename" a trip: its display identity is client/program/phase/location, so renaming
+        /// is editing those on a closed trip. The folder (named by tripId) does not move.
+        /// </summary>
+        public static void UpdateIdentity(string tripId, Action<TripIdentity> edit, string libraryRoot = null)
+        {
+            var folder = Path.Combine(libraryRoot ?? TripPaths.LibraryRoot, TripPaths.SanitizeFileName(tripId));
+            var tripPath = Path.Combine(folder, TripLoader.TripFile);
+            var trip = TripLoader.LoadDocument<TripDocument>(tripPath, DocumentKind.Trip);
+            if (trip.Identity == null) trip.Identity = new TripIdentity();
+            edit(trip.Identity);
+            TripSaver.WriteDocument(trip, tripPath);
+        }
     }
 }

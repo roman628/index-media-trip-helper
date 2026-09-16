@@ -66,8 +66,8 @@ namespace MediaTrip.Persistence
 
         public static string Serialize(object value) => JsonConvert.SerializeObject(value, CreateSettings());
 
-        /// <summary>Deep copy through JSON. Handy for undo snapshots and tests.</summary>
-        public static T Clone<T>(T value) => Deserialize<T>(Serialize(value));
+        /// <summary>Deep copy through JSON (objects or lists). Handy for duplicating entities and for tests.</summary>
+        public static T Clone<T>(T value) => JsonConvert.DeserializeObject<T>(Serialize(value), CreateSettings());
 
         // ------------------------------------------------------------------
         // Semantic comparison

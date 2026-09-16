@@ -23,14 +23,14 @@ namespace MediaTrip.Tests
         public void Remaining_And_Captured_Filters()
         {
             var q = Q();
-            CollectionAssert.AreEqual(new[] { "v-004" }, q.Remaining().Select(i => i.Id).ToList());
-            CollectionAssert.AreEqual(new[] { "v-c001", "v-003", "v-a001" }, q.Captured().Select(i => i.Id).ToList());
+            Assert.IsEmpty(q.Remaining(), "everything in the sample was shot, dropped, or replaced");
+            CollectionAssert.AreEqual(new[] { "v-c001", "v-003", "v-004", "v-a001" }, q.Captured().Select(i => i.Id).ToList());
             CollectionAssert.AreEqual(new[] { "v-005" }, q.Dropped().Select(i => i.Id).ToList());
             CollectionAssert.AreEqual(new[] { "v-001", "v-002" }, q.ByStatus(PlanItemStatus.Superseded).Select(i => i.Id).ToList());
 
-            var noPhotoRule = new TripQueries(Fixtures.LoadSample(), new ResolveOptions { PhotoRefsAffectVideoStatus = false });
-            Assert.IsEmpty(noPhotoRule.Remaining());
-            Assert.AreEqual(4, noPhotoRule.Captured().Count);
+            var photoRule = new TripQueries(Fixtures.LoadSample(), new ResolveOptions { PhotoRefsAffectVideoStatus = true });
+            CollectionAssert.AreEqual(new[] { "v-004" }, photoRule.Remaining().Select(i => i.Id).ToList());
+            Assert.AreEqual(3, photoRule.Captured().Count);
         }
 
         [Test]

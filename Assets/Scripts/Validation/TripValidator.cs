@@ -6,12 +6,25 @@ namespace MediaTrip.Validation
 {
     public enum IssueSeverity { Warning, Error }
 
+    public enum ValidationKind
+    {
+        Other,
+        DuplicateId,
+        MissingId,
+        DanglingReference,
+        /// <summary>A video with no chapter at all (as opposed to an unknown one).</summary>
+        VideoWithoutChapter,
+        /// <summary>Two planned videos share a number.</summary>
+        DuplicateNumber,
+    }
+
     public class ValidationIssue
     {
         public IssueSeverity Severity;
+        public ValidationKind Kind;
         public string Message;
         public string EntityId;
-        public override string ToString() => $"{Severity}: {Message}";
+        public override string ToString() => $"{Severity}/{Kind}: {Message}";
     }
 
     /// <summary>
@@ -24,8 +37,10 @@ namespace MediaTrip.Validation
         public static List<ValidationIssue> Validate(TripData d)
         {
             var issues = new List<ValidationIssue>();
-            void Err(string msg, string id = null) => issues.Add(new ValidationIssue { Severity = IssueSeverity.Error, Message = msg, EntityId = id });
-            void Warn(string msg, string id = null) => issues.Add(new ValidationIssue { Severity = IssueSeverity.Warning, Message = msg, EntityId = id });
+            void Err(string msg, string id = null, ValidationKind kind = ValidationKind.DanglingReference) =>
+                issues.Add(new ValidationIssue { Severity = IssueSeverity.Error, Kind = kind, Message = msg, EntityId = id });
+            void Warn(string msg, string id = null, ValidationKind kind = ValidationKind.Other) =>
+                issues.Add(new ValidationIssue { Severity = IssueSeverity.Warning, Kind = kind, Message = msg, EntityId = id });
 
             var bookIds = new HashSet<string>(d.Trip.Books.Select(b => b.Id));
             var chapterIds = new HashSet<string>(d.ShotList.Chapters.Select(c => c.Id));
@@ -48,7 +63,7 @@ namespace MediaTrip.Validation
             CheckDuplicates(d.Captures.OutlineAssignments.Select(a => a.Id), "outlineAssignment", Err);
 
             var numbers = d.ShotList.Videos.GroupBy(v => v.Number).Where(g => g.Count() > 1);
-            foreach (var g in numbers) Warn($"Video number {g.Key} is used by {g.Count()} videos.");
+            foreach (var g in numbers) Warn($"Video number {g.Key} is used by {g.Count()} videos.", null, ValidationKind.DuplicateNumber);
 
             foreach (var ch in d.ShotList.Chapters)
                 if (!bookIds.Contains(ch.BookId ?? "")) Err($"Chapter '{ch.Id}' references unknown book '{ch.BookId}'.", ch.Id);
@@ -56,9 +71,10 @@ namespace MediaTrip.Validation
             foreach (var v in d.ShotList.Videos)
             {
                 if (!bookIds.Contains(v.BookId ?? "")) Err($"Video {v.Number} references unknown book '{v.BookId}'.", v.Id);
-                if (!chapterIds.Contains(v.ChapterId ?? "")) Err($"Video {v.Number} references unknown chapter '{v.ChapterId}'.", v.Id);
+                if (string.IsNullOrEmpty(v.ChapterId)) Err($"Video {v.Number} ('{v.Title}') has no chapter.", v.Id, ValidationKind.VideoWithoutChapter);
+                else if (!chapterIds.Contains(v.ChapterId)) Err($"Video {v.Number} references unknown chapter '{v.ChapterId}'.", v.Id);
                 foreach (var pid in v.SmeIds ?? Enumerable.Empty<string>())
-                    if (!personIds.Contains(pid)) Warn($"Video {v.Number} SME '{pid}' is not in the people registry.", v.Id);
+                    if (!personIds.Contains(pid)) Warn($"Video {v.Number} SME '{pid}' is not in the people registry.", v.Id, ValidationKind.DanglingReference);
                 foreach (var ph in v.PhotoRefs ?? Enumerable.Empty<string>())
                     if (!photoIds.Contains(ph)) Err($"Video {v.Number} photoRef '{ph}' is not in the master photo list.", v.Id);
             }
@@ -90,7 +106,7 @@ namespace MediaTrip.Validation
                 if (c.BookId != null && !bookIds.Contains(c.BookId)) Err($"Capture '{c.Id}' references unknown book '{c.BookId}'.", c.Id);
                 if (c.ChapterId != null && !chapterIds.Contains(c.ChapterId)) Err($"Capture '{c.Id}' references unknown chapter '{c.ChapterId}'.", c.Id);
                 foreach (var cp in c.People ?? Enumerable.Empty<CapturePerson>())
-                    if (cp.PersonId != null && !personIds.Contains(cp.PersonId)) Warn($"Capture '{c.Id}' person '{cp.PersonId}' is not in the registry.", c.Id);
+                    if (cp.PersonId != null && !personIds.Contains(cp.PersonId)) Warn($"Capture '{c.Id}' person '{cp.PersonId}' is not in the registry.", c.Id, ValidationKind.DanglingReference);
                 foreach (var cp in c.Photos ?? Enumerable.Empty<CapturePhoto>())
                 {
                     if (cp.PhotoId != null && !photoIds.Contains(cp.PhotoId)) Err($"Capture '{c.Id}' photo '{cp.PhotoId}' is not in the master photo list.", c.Id);
@@ -108,7 +124,7 @@ namespace MediaTrip.Validation
 
             foreach (var a in d.Captures.OutlineAssignments)
             {
-                if (a.MediaRef == null || a.MediaRef.Id == null) { Err($"Assignment '{a.Id}' has no mediaRef.", a.Id); continue; }
+                if (a.MediaRef == null || a.MediaRef.Id == null) { Err($"Assignment '{a.Id}' has no mediaRef.", a.Id, ValidationKind.Other); continue; }
                 bool exists = a.MediaRef.Kind == MediaRefKind.Capture ? captureIds.Contains(a.MediaRef.Id)
                     : a.MediaRef.Kind == MediaRefKind.PhotoCapture ? photoCaptureIds.Contains(a.MediaRef.Id)
                     : photoIds.Contains(a.MediaRef.Id);
@@ -128,25 +144,25 @@ namespace MediaTrip.Validation
 
             foreach (var kv in d.Outlines)
             {
-                if (!bookIds.Contains(kv.Key)) Warn($"Outline '{kv.Key}' does not match any book in trip.json.");
+                if (!bookIds.Contains(kv.Key)) Warn($"Outline '{kv.Key}' does not match any book in trip.json.", kv.Key, ValidationKind.DanglingReference);
                 var ids = kv.Value.Chapters.SelectMany(c => new[] { c.Id }.Concat(c.Sections.SelectMany(s => new[] { s.Id }.Concat(Node.Walk(s.Nodes).Select(n => n.node.Id)))));
                 CheckDuplicates(ids, "outline " + kv.Key + " id", Err);
             }
 
             foreach (var b in d.Trip.Books)
                 foreach (var pid in b.Team?.MemberIds ?? Enumerable.Empty<string>())
-                    if (!personIds.Contains(pid)) Warn($"Book {b.Number} team member '{pid}' is not in the registry.", b.Id);
+                    if (!personIds.Contains(pid)) Warn($"Book {b.Number} team member '{pid}' is not in the registry.", b.Id, ValidationKind.DanglingReference);
 
             return issues;
         }
 
-        private static void CheckDuplicates(IEnumerable<string> ids, string what, System.Action<string, string> report)
+        private static void CheckDuplicates(IEnumerable<string> ids, string what, System.Action<string, string, ValidationKind> report)
         {
             var seen = new HashSet<string>();
             foreach (var id in ids)
             {
-                if (string.IsNullOrEmpty(id)) { report($"A {what} has no id.", null); continue; }
-                if (!seen.Add(id)) report($"Duplicate {what} id '{id}'.", id);
+                if (string.IsNullOrEmpty(id)) { report($"A {what} has no id.", null, ValidationKind.MissingId); continue; }
+                if (!seen.Add(id)) report($"Duplicate {what} id '{id}'.", id, ValidationKind.DuplicateId);
             }
         }
     }
