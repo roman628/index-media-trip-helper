@@ -1,0 +1,19 @@
+/* Beacon · Light · theme variables only. Rebranding = editing these values. */
+.theme {
+    --bg: #ffffff;
+    --sf: #ffffff;
+    --sf2: #e6e6e6;
+    --bd: #000000;
+    --tx: #000000;
+    --tx2: #2b2b2b;
+    --ac: #ffd400;
+    --acTx: #000000;
+    --ok: #006b1e;
+    --okTx: #ffffff;
+    --warn: #8a5000;
+    --bad: #c00000;
+    --badTx: #ffffff;
+    --chrome: #000000;
+    --chromeTx: #ffffff;
+    --bw: 3px;
+}

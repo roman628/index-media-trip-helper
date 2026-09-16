@@ -142,6 +142,14 @@ namespace MediaTrip.Persistence
         public static string ImportSampleTrip(bool overwrite = true, string libraryRoot = null) =>
             ImportFolder(TripPaths.SampleTripFolder, overwrite, libraryRoot);
 
+        /// <summary>First run: if the library is empty, import the bundled sample so the app is never blank. Returns the folder or null.</summary>
+        public static string EnsureSampleIfEmpty(string libraryRoot = null)
+        {
+            if (ListTrips(libraryRoot).Count > 0) return null;
+            if (!Directory.Exists(TripPaths.SampleTripFolder)) return null;
+            return ImportSampleTrip(overwrite: false, libraryRoot: libraryRoot);
+        }
+
         /// <summary>Copy a library trip out to another folder (a plain folder export; zip comes later).</summary>
         public static void ExportFolder(string tripId, string destinationFolder, string libraryRoot = null)
         {

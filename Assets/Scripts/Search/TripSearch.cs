@@ -234,6 +234,47 @@ namespace MediaTrip.Search
                 null, Options.MinScore, maxResults);
         }
 
+        /// <summary>Master-list photos matching a query (description, hero label, book and chapter names).</summary>
+        public List<ScoredMatch<PhotoItem>> SearchPhotos(string query, int maxResults = 10)
+        {
+            return FuzzyMatcher.Rank(query ?? "", Plan.Photos, p =>
+            {
+                var fields = new List<string> { p.Description };
+                var book = Data.FindBook(p.BookId);
+                var ch = Data.FindChapter(p.ChapterId);
+                if (p.HeroType == HeroType.BookCover) fields.Add("book cover hero " + (book?.Name ?? ""));
+                if (p.HeroType == HeroType.ChapterHero) fields.Add("chapter " + (ch?.Number.ToString() ?? "") + " hero " + (ch?.Name ?? ""));
+                if (book != null) fields.Add("book " + book.Number + " " + book.Name);
+                return fields;
+            }, null, Options.MinScore, maxResults);
+        }
+
+        public class SectionHit
+        {
+            public string BookId;
+            public OutlineChapter Chapter;
+            public OutlineSection Section;
+        }
+
+        /// <summary>Outline sections matching a query (number, name, chapter name).</summary>
+        public List<ScoredMatch<SectionHit>> SearchSections(string query, int maxResults = 10)
+        {
+            var hits = new List<SectionHit>();
+            foreach (var kv in Data.Outlines)
+                foreach (var ch in kv.Value.Chapters)
+                    foreach (var s in ch.Sections)
+                        hits.Add(new SectionHit { BookId = kv.Key, Chapter = ch, Section = s });
+            return FuzzyMatcher.Rank(query ?? "", hits,
+                h => new[] { h.Section.Name, h.Section.Number + " " + h.Section.Name, h.Chapter.Name },
+                null, Options.MinScore, maxResults, OutlineTokenWeights);
+        }
+
+        /// <summary>People matching a query (registry only).</summary>
+        public List<ScoredMatch<Person>> SearchPeople(string query, int maxResults = 6) =>
+            FuzzyMatcher.Rank(query ?? "", Data.Trip.People,
+                p => new[] { p.FullName, p.FirstName, p.LastName, p.Title },
+                null, Options.MinScore, maxResults);
+
         private static double NumberScore(PlanItem item, string digits)
         {
             double best = 0;

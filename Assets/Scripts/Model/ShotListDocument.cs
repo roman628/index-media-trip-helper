@@ -51,15 +51,27 @@ namespace MediaTrip.Model
     public class Photo
     {
         public string Id { get; set; }
+        /// <summary>PRIMARY book: where the photo sits in the master list.</summary>
         public string BookId { get; set; }
         /// <summary>Set for chapter hero shots; null otherwise.</summary>
         public string ChapterId { get; set; }
+        /// <summary>Extra books this photo also belongs to. Rare, but allowed.</summary>
+        public List<string> AlsoBookIds { get; set; } = new List<string>();
+        /// <summary>Extra chapters this photo also belongs to. Rare, but allowed.</summary>
+        public List<string> AlsoChapterIds { get; set; } = new List<string>();
         public HeroType HeroType { get; set; } = HeroType.None;
-        /// <summary>Order within its book; heroes come first (cover, then ch.1..N).</summary>
+        /// <summary>Order within its primary book; heroes come first (cover, then ch.1..N).</summary>
         public int Order { get; set; }
         public string Description { get; set; }
         [JsonExtensionData] public IDictionary<string, JToken> Extra { get; set; }
 
         [JsonIgnore] public bool IsHero => HeroType != HeroType.None;
+        [JsonIgnore] public bool IsShared => (AlsoBookIds?.Count ?? 0) > 0 || (AlsoChapterIds?.Count ?? 0) > 0;
+
+        public bool BelongsToBook(string bookId) =>
+            bookId != null && (BookId == bookId || (AlsoBookIds != null && AlsoBookIds.Contains(bookId)));
+
+        public bool BelongsToChapter(string chapterId) =>
+            chapterId != null && (ChapterId == chapterId || (AlsoChapterIds != null && AlsoChapterIds.Contains(chapterId)));
     }
 }

@@ -1,0 +1,19 @@
+/* Harbor · Dark · theme variables only. Rebranding = editing these values. */
+.theme {
+    --bg: #0b1017;
+    --sf: #151c26;
+    --sf2: #212b38;
+    --bd: #55647a;
+    --tx: #eef3fa;
+    --tx2: #a8b6c8;
+    --ac: #6cb0ff;
+    --acTx: #04111f;
+    --ok: #4ccf7a;
+    --okTx: #03200e;
+    --warn: #f0b64a;
+    --bad: #ff7b72;
+    --badTx: #1a0505;
+    --chrome: #040709;
+    --chromeTx: #eef3fa;
+    --bw: 2px;
+}

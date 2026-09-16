@@ -82,7 +82,8 @@ namespace MediaTrip.Authoring
 
             foreach (var v in VideosOfBook(id).ToList()) D.ShotList.Videos.Remove(v);
             foreach (var p in photos) RemovePhotoInternal(p);
-            foreach (var ch in chapters) D.ShotList.Chapters.Remove(ch);
+            foreach (var ch in chapters) { D.ShotList.Chapters.Remove(ch); StripAssociations(null, ch.Id); }
+            StripAssociations(id, null);
             D.Trip.Books.Remove(b);
             if (hasOutline) _s.RemoveOutline(id);
             Finish(booksChanged: true);
@@ -136,6 +137,7 @@ namespace MediaTrip.Authoring
             foreach (var v in videos) D.ShotList.Videos.Remove(v);
             foreach (var p in photos) RemovePhotoInternal(p);
             D.ShotList.Chapters.Remove(c);
+            StripAssociations(null, c.Id);
             Finish();
         }
 
@@ -330,10 +332,45 @@ namespace MediaTrip.Authoring
             Finish();
         }
 
+        /// <summary>Copy a photo as a non-hero photo directly after the original in its book.</summary>
+        public Photo DuplicatePhoto(string id)
+        {
+            var p = RequirePhoto(id);
+            var copy = TripJson.Clone(p);
+            copy.Id = Ids.New("ph");
+            copy.HeroType = HeroType.None;
+            copy.ChapterId = null;
+            D.ShotList.Photos.Insert(D.ShotList.Photos.IndexOf(p) + 1, copy);
+            Finish();
+            return copy;
+        }
+
+        /// <summary>Extra book/chapter associations for a photo that belongs in more than one place.</summary>
+        public void SetPhotoAssociations(string photoId, IEnumerable<string> alsoBookIds, IEnumerable<string> alsoChapterIds)
+        {
+            var p = RequirePhoto(photoId);
+            var books = (alsoBookIds ?? Enumerable.Empty<string>()).Where(b => b != null && b != p.BookId).Distinct().ToList();
+            var chapters = (alsoChapterIds ?? Enumerable.Empty<string>()).Where(c => c != null && c != p.ChapterId).Distinct().ToList();
+            foreach (var b in books) RequireBook(b);
+            foreach (var c in chapters) RequireChapter(c);
+            p.AlsoBookIds = books;
+            p.AlsoChapterIds = chapters;
+            Finish();
+        }
+
         private void RemovePhotoInternal(Photo p)
         {
             D.ShotList.Photos.Remove(p);
             foreach (var v in D.ShotList.Videos) v.PhotoRefs?.RemoveAll(r => r == p.Id);
+        }
+
+        private void StripAssociations(string bookId, string chapterId)
+        {
+            foreach (var p in D.ShotList.Photos)
+            {
+                if (bookId != null) p.AlsoBookIds?.Remove(bookId);
+                if (chapterId != null) p.AlsoChapterIds?.Remove(chapterId);
+            }
         }
 
         private static void Restore(Photo target, Photo from)

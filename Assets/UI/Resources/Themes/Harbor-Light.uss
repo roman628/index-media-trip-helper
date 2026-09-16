@@ -1,0 +1,19 @@
+/* Harbor · Light · theme variables only. Rebranding = editing these values. */
+.theme {
+    --bg: #eaeef4;
+    --sf: #ffffff;
+    --sf2: #d6dee9;
+    --bd: #8a99ad;
+    --tx: #0d1520;
+    --tx2: #44505f;
+    --ac: #0b57c2;
+    --acTx: #ffffff;
+    --ok: #1f7a45;
+    --okTx: #ffffff;
+    --warn: #8a5500;
+    --bad: #b3261e;
+    --badTx: #ffffff;
+    --chrome: #0d1520;
+    --chromeTx: #ffffff;
+    --bw: 2px;
+}

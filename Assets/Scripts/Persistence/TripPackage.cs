@@ -7,6 +7,8 @@ using System.Text;
 using MediaTrip.Model;
 using MediaTrip.Session;
 using MediaTrip.Validation;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace MediaTrip.Persistence
 {
@@ -51,6 +53,12 @@ namespace MediaTrip.Persistence
         public TripData Staged;
         /// <summary>For a single outline document import: which book it belongs to.</summary>
         public string OutlineBookId;
+        /// <summary>Set when the validated text was a single document rather than a whole trip. The caller validates it against the open trip.</summary>
+        public DocumentKind? SingleDocumentKind;
+        /// <summary>True when the source was a whole trip (zip, folder or JSON bundle).</summary>
+        public bool IsWholeTrip;
+        /// <summary>Source format that was detected: "zip", "folder", "bundle", "document".</summary>
+        public string Format;
 
         public override string ToString() =>
             $"{Source}: {(CanImport ? "OK" : "BLOCKED")} {Errors.Count()} errors, {Warnings.Count()} warnings; {Videos} videos, {Photos} photos, {Captures} captures";
@@ -97,6 +105,141 @@ namespace MediaTrip.Persistence
 
         public static void ExportZip(string tripFolder, string zipPath) => ExportZip(TripLoader.Load(tripFolder), zipPath);
 
+        /// <summary>Zip if the platform's ZipArchive works; returns false with the error otherwise (caller falls back to a bundle).</summary>
+        public static bool TryExportZip(TripData data, string zipPath, out string error)
+        {
+            try
+            {
+                ExportZip(data, zipPath);
+                error = null;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.GetType().Name + ": " + ex.Message;
+                try { if (File.Exists(zipPath + ".tmp")) File.Delete(zipPath + ".tmp"); } catch { /* ignore */ }
+                return false;
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Single-file JSON bundle (clipboard transfer, zip fallback)
+        // ------------------------------------------------------------------
+
+        public const string BundleMarker = "mediaTripBundle";
+        public const int BundleVersion = 1;
+
+        /// <summary>The whole trip as one JSON object: { mediaTripBundle: 1, tripId, files: { "trip.json": {...}, ... } }.</summary>
+        public static string ExportBundleJson(TripData data)
+        {
+            var files = new JObject();
+            foreach (var (name, doc) in Documents(data))
+                files[name] = TripJson.ParseObject(TripSaver.ToJson(doc));
+            var bundle = new JObject
+            {
+                [BundleMarker] = BundleVersion,
+                ["tripId"] = data.TripId,
+                ["exportedAt"] = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
+                ["files"] = files,
+            };
+            return bundle.ToString(Formatting.Indented);
+        }
+
+        public static void ExportBundle(TripData data, string path) => TripSaver.WriteAtomic(path, ExportBundleJson(data));
+
+        /// <summary>Guess what a JSON object is from its keys: a bundle, or one of the four documents.</summary>
+        public static DocumentKind? DetectDocumentKind(JObject obj)
+        {
+            if (obj == null) return null;
+            if (obj[BundleMarker] != null) return null;
+            if (obj["videos"] != null || obj["photos"] != null) return DocumentKind.ShotList;
+            if (obj["captures"] != null || obj["amendments"] != null || obj["photoCaptures"] != null || obj["outlineAssignments"] != null) return DocumentKind.Captures;
+            if (obj["bookId"] != null && obj["chapters"] != null) return DocumentKind.Outline;
+            if (obj["people"] != null || obj["books"] != null || obj["identity"] != null || obj["days"] != null) return DocumentKind.Trip;
+            if (obj["chapters"] != null) return DocumentKind.ShotList;
+            return null;
+        }
+
+        public static bool IsBundleJson(string json)
+        {
+            try { return TripJson.ParseObject(json)[BundleMarker] != null; }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// Dry-run validate pasted or loaded JSON text. A bundle yields a whole-trip report; a
+        /// single document yields a report with <see cref="ImportReport.SingleDocumentKind"/> set
+        /// and no staged trip (validate it against the open trip with <see cref="ValidateDocument"/>).
+        /// </summary>
+        public static ImportReport ValidateJsonText(string json, string libraryRoot = null, string sourceName = null)
+        {
+            var report = new ImportReport { Source = sourceName ?? "JSON text" };
+            JObject obj;
+            try
+            {
+                obj = TripJson.ParseObject(json ?? "");
+            }
+            catch (Exception ex)
+            {
+                Add(report, IssueSeverity.Error, ImportIssueKind.Parse, sourceName, null, "Not valid JSON: " + ex.Message);
+                return report;
+            }
+
+            if (obj[BundleMarker] != null)
+            {
+                report.Format = "bundle";
+                report.IsWholeTrip = true;
+                var version = obj[BundleMarker].Type == JTokenType.Integer ? obj[BundleMarker].Value<int>() : 0;
+                if (version > BundleVersion)
+                {
+                    Add(report, IssueSeverity.Error, ImportIssueKind.Schema, sourceName, null, $"Bundle version {version} is newer than this app understands ({BundleVersion}).");
+                    return report;
+                }
+                var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (obj["files"] is JObject fileObj)
+                    foreach (var prop in fileObj.Properties())
+                        files[prop.Name.Replace('\\', '/')] = prop.Value.ToString(Formatting.None);
+                else
+                    Add(report, IssueSeverity.Error, ImportIssueKind.MissingFile, sourceName, null, "Bundle has no 'files' object.");
+                ValidateFiles(report, files, libraryRoot);
+                return report;
+            }
+
+            var kind = DetectDocumentKind(obj);
+            report.Format = "document";
+            if (kind == null)
+            {
+                Add(report, IssueSeverity.Error, ImportIssueKind.Other, sourceName, null, "This JSON is not a trip bundle and does not look like trip.json, shotlist.json, captures.json or an outline.");
+                return report;
+            }
+            report.SingleDocumentKind = kind;
+            try
+            {
+                SchemaMigrator.Migrate(TripJson.ParseObject(json), kind.Value, sourceName);
+            }
+            catch (SchemaTooNewException ex)
+            {
+                Add(report, IssueSeverity.Error, ImportIssueKind.Schema, sourceName, null, ex.Message);
+            }
+            return report;
+        }
+
+        /// <summary>Validate a set of in-memory files (name → JSON text) as a whole trip.</summary>
+        public static ImportReport ValidateFileSet(Dictionary<string, string> files, string libraryRoot = null, string sourceName = null)
+        {
+            var report = new ImportReport { Source = sourceName ?? "files", Format = "files", IsWholeTrip = true };
+            ValidateFiles(report, new Dictionary<string, string>(files, StringComparer.OrdinalIgnoreCase), libraryRoot);
+            return report;
+        }
+
+        /// <summary>Whole-trip import from bundle JSON text. Same all-or-nothing commit as the zip path.</summary>
+        public static string ImportBundleJson(string json, bool overwrite = false, string libraryRoot = null, string sourceName = null)
+        {
+            var report = ValidateJsonText(json, libraryRoot, sourceName);
+            if (!report.IsWholeTrip) throw new ImportBlockedException(report);
+            return Commit(report, overwrite, libraryRoot);
+        }
+
         /// <summary>JSON text of one document (outline needs the bookId).</summary>
         public static string ExportDocumentJson(TripData data, DocumentKind kind, string bookId = null)
         {
@@ -139,7 +282,7 @@ namespace MediaTrip.Persistence
         /// <summary>Parse and validate a zip without writing anything.</summary>
         public static ImportReport ValidateZip(string zipPath, string libraryRoot = null)
         {
-            var report = new ImportReport { Source = zipPath };
+            var report = new ImportReport { Source = zipPath, Format = "zip", IsWholeTrip = true };
             if (!File.Exists(zipPath))
             {
                 Add(report, IssueSeverity.Error, ImportIssueKind.MissingFile, null, null, "Zip file not found: " + zipPath);
@@ -162,7 +305,7 @@ namespace MediaTrip.Persistence
         /// <summary>Parse and validate a plain trip folder (e.g. the StreamingAssets sample) without writing anything.</summary>
         public static ImportReport ValidateFolder(string folder, string libraryRoot = null)
         {
-            var report = new ImportReport { Source = folder };
+            var report = new ImportReport { Source = folder, Format = "folder", IsWholeTrip = true };
             if (!Directory.Exists(folder))
             {
                 Add(report, IssueSeverity.Error, ImportIssueKind.MissingFile, null, null, "Folder not found: " + folder);
@@ -395,7 +538,7 @@ namespace MediaTrip.Persistence
         /// </summary>
         public static ImportReport ValidateDocument(TripData target, string json, DocumentKind kind, string sourceName = null)
         {
-            var report = new ImportReport { Source = sourceName ?? kind.ToString() };
+            var report = new ImportReport { Source = sourceName ?? kind.ToString(), Format = "document", SingleDocumentKind = kind };
             var staged = CloneData(target);
             try
             {

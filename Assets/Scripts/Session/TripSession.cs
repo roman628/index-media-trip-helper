@@ -237,12 +237,125 @@ namespace MediaTrip.Session
         public void RemoveCapture(string captureId)
         {
             Data.Captures.Captures.RemoveAll(c => c.Id == captureId);
+            Data.Captures.OutlineAssignments.RemoveAll(a => a.MediaRef != null && a.MediaRef.Kind == MediaRefKind.Capture && a.MediaRef.Id == captureId);
             MarkDirty(DocumentKind.Captures);
+        }
+
+        /// <summary>Undo a check-off: remove every capture of what the plan item resolves to. Returns how many were removed.</summary>
+        public int Uncheck(string planItemId)
+        {
+            var ids = new HashSet<string>(Plan.Resolve(planItemId).Select(i => i.Id)) { planItemId };
+            var removed = Data.Captures.Captures.Where(c => c.PlanVideoId != null && ids.Contains(c.PlanVideoId)).Select(c => c.Id).ToList();
+            foreach (var id in removed) RemoveCapture(id);
+            if (removed.Count == 0) MarkDirty(DocumentKind.Captures);
+            return removed.Count;
+        }
+
+        public void UpdateCapture(string captureId, Action<Capture> edit)
+        {
+            var c = Data.FindCapture(captureId) ?? throw new KeyNotFoundException("No capture " + captureId);
+            var keepId = c.Id;
+            edit(c);
+            c.Id = keepId;
+            MarkDirty(DocumentKind.Captures);
+        }
+
+        /// <summary>
+        /// Flip a master-list photo's captured state: if a video capture lists it, toggle that
+        /// entry; else add or remove a stand-alone photo capture (additional photography) on the day.
+        /// Returns the new captured state.
+        /// </summary>
+        public bool TogglePhotoCaptured(string photoId, string dayId)
+        {
+            foreach (var c in Data.Captures.Captures)
+            {
+                var entry = c.Photos?.FirstOrDefault(p => p.PhotoId == photoId);
+                if (entry != null)
+                {
+                    entry.Captured = !entry.Captured;
+                    MarkDirty(DocumentKind.Captures);
+                    return entry.Captured;
+                }
+            }
+            var pc = Data.Captures.PhotoCaptures.FirstOrDefault(p => p.PhotoId == photoId);
+            if (pc != null)
+            {
+                RemovePhotoCapture(pc.Id);
+                return false;
+            }
+            AddPhotoCapture(new PhotoCapture { DayId = dayId, PhotoId = photoId, Section = PhotoCaptureSection.AdditionalPhotography });
+            return true;
         }
 
         public void RemovePhotoCapture(string photoCaptureId)
         {
             Data.Captures.PhotoCaptures.RemoveAll(c => c.Id == photoCaptureId);
+            Data.Captures.OutlineAssignments.RemoveAll(a => a.MediaRef != null && a.MediaRef.Kind == MediaRefKind.PhotoCapture && a.MediaRef.Id == photoCaptureId);
+            MarkDirty(DocumentKind.Captures);
+        }
+
+        public void UpdateAmendment(string amendmentId, Action<Amendment> edit)
+        {
+            var a = Data.FindAmendment(amendmentId) ?? throw new KeyNotFoundException("No amendment " + amendmentId);
+            var keepId = a.Id; var keepType = a.Type;
+            edit(a);
+            a.Id = keepId; a.Type = keepType;
+            // Captures of an amendment result follow its title/chapter (the summary says what was shot).
+            foreach (var c in Data.Captures.Captures.Where(c => c.PlanVideoId != null && (a.Results ?? new List<string>()).Contains(c.PlanVideoId)))
+            {
+                if (!string.IsNullOrEmpty(a.NewTitle)) c.Title = a.NewTitle;
+                if (a.Type == AmendmentType.Add)
+                {
+                    if (a.NewChapterId != null) c.ChapterId = a.NewChapterId;
+                    if (a.NewBookId != null) c.BookId = a.NewBookId;
+                }
+            }
+            MarkDirty(DocumentKind.Captures);
+        }
+
+        /// <summary>
+        /// Remove an amendment and put things back: captures of a combined result go back onto
+        /// the first source with its planned title and number; a rename's captures get the
+        /// planned title back; an unplanned add takes its captures (and their assignments) with it.
+        /// </summary>
+        public void UndoAmendment(string amendmentId)
+        {
+            var a = Data.FindAmendment(amendmentId);
+            if (a == null) return;
+            var results = a.Results ?? new List<string>();
+            var targets = a.Targets ?? new List<string>();
+            switch (a.Type)
+            {
+                case AmendmentType.Combine:
+                case AmendmentType.Split:
+                {
+                    var first = targets.Count > 0 ? Data.FindVideo(targets[0]) : null;
+                    foreach (var c in Data.Captures.Captures.Where(c => c.PlanVideoId != null && results.Contains(c.PlanVideoId)).ToList())
+                    {
+                        if (first == null) { RemoveCapture(c.Id); continue; }
+                        c.PlanVideoId = first.Id;
+                        c.Title = first.Title;
+                        c.PlannedNumber = first.Number;
+                        c.BookId = first.BookId;
+                        c.ChapterId = first.ChapterId;
+                    }
+                    break;
+                }
+                case AmendmentType.Rename:
+                {
+                    var v = targets.Count > 0 ? Data.FindVideo(targets[0]) : null;
+                    if (v != null)
+                        foreach (var c in Data.Captures.Captures.Where(c => c.PlanVideoId == v.Id)) c.Title = v.Title;
+                    break;
+                }
+                case AmendmentType.Add:
+                {
+                    foreach (var c in Data.Captures.Captures.Where(c => c.PlanVideoId != null && results.Contains(c.PlanVideoId)).ToList())
+                        RemoveCapture(c.Id);
+                    break;
+                }
+            }
+            Data.Captures.Amendments.Remove(a);
             MarkDirty(DocumentKind.Captures);
         }
 
@@ -396,6 +509,55 @@ namespace MediaTrip.Session
             Data.Trip.Days.Add(day);
             MarkDirty(DocumentKind.Trip);
             return day;
+        }
+
+        /// <summary>Remove a day. Refused while captures are attached to it.</summary>
+        public void RemoveDay(string dayId)
+        {
+            var refs = ReferenceFinder.Find(Data, dayId);
+            if (refs.Count > 0) throw new PlanEditBlockedException(dayId, refs, "Move or delete those captures first.", "Removing day");
+            Data.Trip.Days.RemoveAll(d => d.Id == dayId);
+            MarkDirty(DocumentKind.Trip);
+        }
+
+        /// <summary>Edit trip.json fields (identity, dates, weather, logistics, actions, books, days) in one go.</summary>
+        public void EditTrip(Action<TripDocument> edit)
+        {
+            edit(Data.Trip);
+            MarkDirty(DocumentKind.Trip);
+        }
+
+        /// <summary>
+        /// A name typed in the field (capture person with no personId) becomes a registry person,
+        /// and every capture entry with that name is linked to it. Returns the person.
+        /// </summary>
+        public Person AdoptTypedPerson(string name, string title = null, Org org = Org.Client, PersonRole role = PersonRole.Sme)
+        {
+            var person = FindOrAddPerson(name, org, role, title);
+            var norm = FuzzyMatcher.Normalize(name);
+            bool touched = false;
+            foreach (var c in Data.Captures.Captures)
+                foreach (var cp in c.People ?? Enumerable.Empty<CapturePerson>())
+                    if (cp.PersonId == null && FuzzyMatcher.Normalize(cp.Name) == norm) { cp.PersonId = person.Id; touched = true; }
+            if (touched) MarkDirty(DocumentKind.Captures);
+            return person;
+        }
+
+        /// <summary>Names used in captures that are not in the registry (distinct, with the title first seen).</summary>
+        public List<(string name, string title, Capture capture)> TypedButUnregisteredPeople()
+        {
+            var seen = new HashSet<string>();
+            var registry = new HashSet<string>(Data.Trip.People.Select(p => FuzzyMatcher.Normalize(p.FullName)));
+            var result = new List<(string, string, Capture)>();
+            foreach (var c in Data.Captures.Captures)
+                foreach (var cp in c.People ?? Enumerable.Empty<CapturePerson>())
+                {
+                    if (cp.PersonId != null || string.IsNullOrWhiteSpace(cp.Name)) continue;
+                    var norm = FuzzyMatcher.Normalize(cp.Name);
+                    if (registry.Contains(norm) || !seen.Add(norm)) continue;
+                    result.Add((cp.Name, cp.Title, c));
+                }
+            return result;
         }
 
         public ActionItem AddAction(string text)

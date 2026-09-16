@@ -1,0 +1,10 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="False">
+    <!-- Root scaffold. The theme variable stylesheet is added to #app at runtime by ThemeManager;
+         everything below uses the theme variables from Resources/Styles/App.uss. Screens are built in C#. -->
+    <ui:VisualElement name="app" class="theme col" style="width: 100%; height: 100%;">
+        <ui:VisualElement name="top-host" class="col" style="flex-shrink: 0;" />
+        <ui:VisualElement name="body-host" class="row stretch grow" style="min-height: 0; position: relative;" />
+        <ui:VisualElement name="overlay-host" picking-mode="Ignore" style="position: absolute; left: 0; top: 0; right: 0; bottom: 0;" />
+        <ui:VisualElement name="toast-host" picking-mode="Ignore" style="position: absolute; left: 0; right: 0; bottom: 0; align-items: center;" />
+    </ui:VisualElement>
+</ui:UXML>

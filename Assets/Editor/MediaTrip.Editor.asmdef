@@ -1,0 +1,19 @@
+{
+    "name": "MediaTrip.Editor",
+    "rootNamespace": "MediaTrip.EditorTools",
+    "references": [
+        "MediaTrip.Data",
+        "MediaTrip.UI"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

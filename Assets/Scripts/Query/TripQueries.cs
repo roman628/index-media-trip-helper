@@ -6,13 +6,16 @@ using MediaTrip.Status;
 
 namespace MediaTrip.Query
 {
-    /// <summary>A hero shot (book cover or chapter hero) with its status, for the Heroes view.</summary>
+    /// <summary>A hero shot (book cover or chapter hero) with its status, for the Heroes view.
+    /// A photo shared with another book/chapter (alsoBookIds / alsoChapterIds) appears once per association.</summary>
     public class HeroItem
     {
         public PhotoItem Photo;
         public Book Book;
         /// <summary>Shot-list chapter for chapter heroes; null for book covers.</summary>
         public Chapter Chapter;
+        /// <summary>True when this entry comes from an alsoBookIds / alsoChapterIds association rather than the primary book.</summary>
+        public bool IsShared;
         public PhotoStatus Status => Photo.Status;
         public bool IsCaptured => Photo.IsCaptured;
         public string Label =>
@@ -20,6 +23,13 @@ namespace MediaTrip.Query
                 ? "Book cover"
                 : Chapter != null ? $"Ch.{Chapter.Number} hero" : "Chapter hero";
         public override string ToString() => $"{Book?.Name}: {Label} ({Status})";
+    }
+
+    /// <summary>Progress counts for a book or chapter: active (not dropped/superseded) videos and photos.</summary>
+    public struct ProgressStats
+    {
+        public int VideosDone, VideosTotal, PhotosDone, PhotosTotal;
+        public float VideoFraction => VideosTotal == 0 ? 0f : (float)VideosDone / VideosTotal;
     }
 
     /// <summary>One video capture in a day's timeline with the photo captures listed under it.</summary>
@@ -73,6 +83,8 @@ namespace MediaTrip.Query
         public OutlineChapter Chapter;
         /// <summary>Assignments at chapter level (no section).</summary>
         public List<AssignedMedia> AssignedToChapter = new List<AssignedMedia>();
+        /// <summary>Master-list photos associated with this chapter (primary or via alsoChapterIds), as a hint of what could be assigned.</summary>
+        public List<PhotoItem> AssociatedPhotos = new List<PhotoItem>();
         public List<SectionCoverage> Sections = new List<SectionCoverage>();
         public int SectionsCovered => Sections.Count(s => !s.IsEmpty);
         public int SectionsEmpty => Sections.Count(s => s.IsEmpty);
@@ -167,22 +179,74 @@ namespace MediaTrip.Query
 
         public PhotoItem Photo(string id) => Plan.FindPhoto(id);
 
-        /// <summary>Master photo list for one book in its printed order.</summary>
-        public List<PhotoItem> PhotosOfBook(string bookId) =>
-            Plan.Photos.Where(p => p.BookId == bookId).OrderBy(p => p.Photo.Order).ToList();
+        /// <summary>
+        /// Master photo list for one book in its printed order. With <paramref name="includeShared"/>,
+        /// photos whose primary book is elsewhere but that also belong here (alsoBookIds, or an
+        /// alsoChapterIds entry in this book) are appended after the book's own photos.
+        /// </summary>
+        public List<PhotoItem> PhotosOfBook(string bookId, bool includeShared = true)
+        {
+            var own = Plan.Photos.Where(p => p.BookId == bookId).OrderBy(p => p.Photo.Order).ToList();
+            if (!includeShared) return own;
+            var chapterIds = new HashSet<string>(Data.ChaptersOf(bookId).Select(c => c.Id));
+            var bookOrder = BookOrder();
+            var shared = Plan.Photos
+                .Where(p => p.BookId != bookId && (p.Photo.BelongsToBook(bookId) || (p.Photo.AlsoChapterIds ?? new List<string>()).Any(chapterIds.Contains)))
+                .OrderBy(p => bookOrder.TryGetValue(p.BookId ?? "", out var i) ? i : int.MaxValue)
+                .ThenBy(p => p.Photo.Order);
+            own.AddRange(shared);
+            return own;
+        }
 
-        /// <summary>Every book cover and chapter hero across all books, with status, in book then photo order.</summary>
+        /// <summary>Photos associated with a chapter (primary chapterId or alsoChapterIds).</summary>
+        public List<PhotoItem> PhotosOfChapter(string chapterId) =>
+            Plan.Photos.Where(p => p.Photo.BelongsToChapter(chapterId)).OrderBy(p => p.Photo.Order).ToList();
+
+        private Dictionary<string, int> BookOrder() =>
+            Data.Trip.Books.Select((b, i) => (b.Id, i)).ToDictionary(t => t.Id, t => t.i);
+
+        /// <summary>
+        /// Every book cover and chapter hero across all books, with status, in book then photo
+        /// order. A hero shared with another chapter or book (alsoChapterIds / alsoBookIds) is
+        /// listed again under that chapter or book with <see cref="HeroItem.IsShared"/> set.
+        /// </summary>
         public List<HeroItem> Heroes()
         {
-            var bookOrder = Data.Trip.Books.Select((b, i) => (b.Id, i)).ToDictionary(t => t.Id, t => t.i);
-            return Plan.Photos
-                .Where(p => p.HeroType != HeroType.None)
-                .OrderBy(p => bookOrder.TryGetValue(p.BookId ?? "", out var i) ? i : int.MaxValue)
-                .ThenBy(p => p.HeroType == HeroType.BookCover ? 0 : 1)
-                .ThenBy(p => p.Photo.Order)
-                .Select(p => new HeroItem { Photo = p, Book = Data.FindBook(p.BookId), Chapter = Data.FindChapter(p.ChapterId) })
+            var bookOrder = BookOrder();
+            var items = new List<HeroItem>();
+            foreach (var p in Plan.Photos.Where(p => p.HeroType != HeroType.None))
+            {
+                items.Add(new HeroItem { Photo = p, Book = Data.FindBook(p.BookId), Chapter = Data.FindChapter(p.ChapterId) });
+                if (p.HeroType == HeroType.ChapterHero)
+                {
+                    foreach (var chId in p.Photo.AlsoChapterIds ?? new List<string>())
+                    {
+                        var ch = Data.FindChapter(chId);
+                        if (ch == null || chId == p.ChapterId) continue;
+                        items.Add(new HeroItem { Photo = p, Book = Data.FindBook(ch.BookId), Chapter = ch, IsShared = true });
+                    }
+                }
+                else
+                {
+                    foreach (var bId in p.Photo.AlsoBookIds ?? new List<string>())
+                    {
+                        if (bId == p.BookId) continue;
+                        var b = Data.FindBook(bId);
+                        if (b == null) continue;
+                        items.Add(new HeroItem { Photo = p, Book = b, IsShared = true });
+                    }
+                }
+            }
+            int Rank(HeroItem h) => h.Book != null && bookOrder.TryGetValue(h.Book.Id, out var i) ? i : int.MaxValue;
+            return items
+                .OrderBy(Rank)
+                .ThenBy(h => h.Photo.HeroType == HeroType.BookCover ? 0 : 1)
+                .ThenBy(h => h.Chapter?.Number ?? 0)
+                .ThenBy(h => h.Photo.Photo.Order)
                 .ToList();
         }
+
+        public List<HeroItem> HeroesOfBook(string bookId) => Heroes().Where(h => h.Book?.Id == bookId).ToList();
 
         public List<HeroItem> RemainingHeroes() => Heroes().Where(h => h.Status == PhotoStatus.NotCaptured).ToList();
 
@@ -191,6 +255,46 @@ namespace MediaTrip.Query
             var heroes = Heroes().Where(h => h.Status != PhotoStatus.Dropped).ToList();
             return (heroes.Count(h => h.IsCaptured), heroes.Count);
         }
+
+        /// <summary>Active videos (not dropped or superseded) and photos of a book, done vs total.</summary>
+        public ProgressStats BookStats(string bookId)
+        {
+            var items = Plan.Items.Where(i => i.BookId == bookId && !i.IsDropped && !i.IsSuperseded).ToList();
+            var photos = PhotosOfBook(bookId).Where(p => p.Status != PhotoStatus.Dropped).ToList();
+            return new ProgressStats
+            {
+                VideosDone = items.Count(i => i.Status == PlanItemStatus.Captured),
+                VideosTotal = items.Count,
+                PhotosDone = photos.Count(p => p.IsCaptured),
+                PhotosTotal = photos.Count,
+            };
+        }
+
+        public ProgressStats ChapterStats(string chapterId)
+        {
+            var items = Plan.Items.Where(i => i.ChapterId == chapterId && !i.IsDropped && !i.IsSuperseded).ToList();
+            var photos = PhotosOfChapter(chapterId).Where(p => p.Status != PhotoStatus.Dropped).ToList();
+            return new ProgressStats
+            {
+                VideosDone = items.Count(i => i.Status == PlanItemStatus.Captured),
+                VideosTotal = items.Count,
+                PhotosDone = photos.Count(p => p.IsCaptured),
+                PhotosTotal = photos.Count,
+            };
+        }
+
+        /// <summary>Master-list photos not yet captured (and not dropped), in book then order.</summary>
+        public List<PhotoItem> RemainingPhotos()
+        {
+            var bookOrder = BookOrder();
+            return Plan.Photos.Where(p => p.Status == PhotoStatus.NotCaptured)
+                .OrderBy(p => bookOrder.TryGetValue(p.BookId ?? "", out var i) ? i : int.MaxValue)
+                .ThenBy(p => p.Photo.Order).ToList();
+        }
+
+        /// <summary>The chapter hero photo of a chapter, if any (primary association).</summary>
+        public PhotoItem ChapterHero(string chapterId) =>
+            Plan.Photos.FirstOrDefault(p => p.HeroType == HeroType.ChapterHero && p.Photo.BelongsToChapter(chapterId));
 
         // ------------------------------------------------------------------
         // Days (the summary)
@@ -341,7 +445,11 @@ namespace MediaTrip.Query
             {
                 var cc = new ChapterCoverage { Chapter = ch };
                 coverage.Chapters.Add(cc);
-                if (ch.Id != null) chapterById[ch.Id] = cc;
+                if (ch.Id != null)
+                {
+                    chapterById[ch.Id] = cc;
+                    cc.AssociatedPhotos = PhotosOfChapter(ch.Id);
+                }
                 foreach (var s in ch.Sections)
                 {
                     var sc = new SectionCoverage { Section = s };

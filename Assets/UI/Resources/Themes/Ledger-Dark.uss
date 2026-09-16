@@ -1,0 +1,19 @@
+/* Ledger · Dark · theme variables only. Rebranding = editing these values. */
+.theme {
+    --bg: #161310;
+    --sf: #221e18;
+    --sf2: #2f2921;
+    --bd: #5f5646;
+    --tx: #f4eee2;
+    --tx2: #b8ae99;
+    --ac: #f2874a;
+    --acTx: #1a1208;
+    --ok: #5fcb72;
+    --okTx: #0b2010;
+    --warn: #e9b93f;
+    --bad: #f37070;
+    --badTx: #1a0505;
+    --chrome: #0c0a08;
+    --chromeTx: #f4eee2;
+    --bw: 2px;
+}

@@ -1,0 +1,19 @@
+/* Moss · Light · theme variables only. Rebranding = editing these values. */
+.theme {
+    --bg: #eef0e8;
+    --sf: #fbfcf7;
+    --sf2: #dde2cf;
+    --bd: #8f977f;
+    --tx: #171a12;
+    --tx2: #4d5442;
+    --ac: #0f6b5c;
+    --acTx: #ffffff;
+    --ok: #2c7a33;
+    --okTx: #ffffff;
+    --warn: #855700;
+    --bad: #a83232;
+    --badTx: #ffffff;
+    --chrome: #1f261b;
+    --chromeTx: #eef0e8;
+    --bw: 2px;
+}
