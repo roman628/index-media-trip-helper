@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "tripId": "trip-sample-0001",
+
+  "amendments": [
+    {
+      "id": "am-001", "type": "combine", "at": "2026-09-15T15:10:00Z",
+      "reason": "Same setup and same SME; shot as one continuous take.",
+      "targets": ["v-001", "v-002"],
+      "results": ["v-c001"],
+      "newTitle": "Walkthrough and Entry Point Hazards"
+    },
+    {
+      "id": "am-002", "type": "rename", "at": "2026-09-15T18:40:00Z",
+      "reason": "SME used the plant's own wording on camera.",
+      "targets": ["v-003"], "results": ["v-003"],
+      "newTitle": "Completing the Confined Space Entry Permit"
+    },
+    {
+      "id": "am-003", "type": "add", "at": "2026-09-16T14:05:00Z",
+      "reason": "Unplanned. Client asked for coverage of the lock box.",
+      "targets": [], "results": ["v-a001"],
+      "newTitle": "Group Lock Box Walkthrough",
+      "newBookId": "b-002", "newChapterId": "c-201"
+    },
+    {
+      "id": "am-004", "type": "drop", "at": "2026-09-16T16:30:00Z",
+      "reason": "Line was down; could not stage the try step safely.",
+      "targets": ["v-005"], "results": []
+    }
+  ],
+
+  "captures": [
+    {
+      "id": "cap-001", "dayId": "d-001", "capturedOrder": 1,
+      "planVideoId": "v-c001", "plannedNumber": 1,
+      "title": "Walkthrough and Entry Point Hazards",
+      "bookId": "b-001", "chapterId": "c-101",
+      "description": "Gallery walkthrough ending at the east tank hatch.",
+      "sceneDescription": "Handheld following the SME, then locked off at the hatch.",
+      "hpiToolSuggestion": "Eyes and mind on task",
+      "keywords": ["confined space", "entry", "hatch", "walkthrough"],
+      "bRoll": "Wide of the gallery, hands on the hatch dogs, ventilation fan running.",
+      "cameraCount": 2,
+      "people": [ { "personId": "p-006", "name": "Terry Blackwood", "title": "Line Supervisor" } ],
+      "location": "East tank gallery, north end",
+      "notes": "Ambient noise from the fan; may need pickup VO for the second half.",
+      "photos": [
+        { "photoId": "ph-001", "text": null, "captured": true },
+        { "photoId": "ph-004", "text": null, "captured": true },
+        { "photoId": null, "text": "Unplanned: warning placard at the gallery entrance", "captured": true }
+      ]
+    },
+    {
+      "id": "cap-002", "dayId": "d-001", "capturedOrder": 2,
+      "planVideoId": "v-003", "plannedNumber": 3,
+      "title": "Completing the Confined Space Entry Permit",
+      "bookId": "b-001", "chapterId": "c-102",
+      "description": "Overhead tabletop of the permit being filled out.",
+      "sceneDescription": null,
+      "hpiToolSuggestion": "Self check",
+      "keywords": ["permit", "atmospheric testing", "documentation"],
+      "bRoll": "N/A",
+      "cameraCount": 1,
+      "people": [ { "personId": "p-007", "name": "Nina Okoro", "title": "Safety Lead" } ],
+      "location": "Safety office, conference table",
+      "notes": "Shot before the walkthrough was finished; permit was blank on purpose.",
+      "photos": [ { "photoId": "ph-003", "text": null, "captured": true } ]
+    },
+    {
+      "id": "cap-003", "dayId": "d-002", "capturedOrder": 1,
+      "planVideoId": "v-004", "plannedNumber": 4,
+      "title": "Applying the First Lock",
+      "bookId": "b-002", "chapterId": "c-201",
+      "description": "Two camera coverage at the motor control center.",
+      "sceneDescription": "Wide plus over the shoulder.",
+      "hpiToolSuggestion": "Three way communication",
+      "keywords": ["lockout", "tagout", "MCC", "energy isolation"],
+      "bRoll": "Lock array close ups, tag being written.",
+      "cameraCount": 2,
+      "people": [
+        { "personId": "p-007", "name": "Nina Okoro", "title": "Safety Lead" },
+        { "personId": null, "name": "Owen Pratt", "title": "Electrician" }
+      ],
+      "location": "MCC room 2",
+      "notes": "Owen was not on the personnel list; added on site.",
+      "photos": [
+        { "photoId": "ph-005", "text": null, "captured": true },
+        { "photoId": "ph-006", "text": null, "captured": true }
+      ]
+    },
+    {
+      "id": "cap-004", "dayId": "d-002", "capturedOrder": 2,
+      "planVideoId": "v-a001", "plannedNumber": null,
+      "title": "Group Lock Box Walkthrough",
+      "bookId": "b-002", "chapterId": "c-201",
+      "description": "Unplanned. Lock box procedure end to end.",
+      "sceneDescription": null,
+      "hpiToolSuggestion": "Peer check",
+      "keywords": ["lock box", "group lockout"],
+      "bRoll": "Keys going into the box, lid closing.",
+      "cameraCount": 1,
+      "people": [ { "personId": "p-007", "name": "Nina Okoro", "title": "Safety Lead" } ],
+      "location": "MCC room 2, by the door",
+      "notes": "Client specifically asked for this.",
+      "photos": [ { "photoId": "ph-008", "text": null, "captured": true } ]
+    }
+  ],
+
+  "photoCaptures": [
+    { "id": "pc-001", "dayId": "d-001", "capturedOrder": 3, "photoId": "ph-002", "text": null,
+      "afterCaptureId": "cap-002", "section": "underVideo" },
+    { "id": "pc-002", "dayId": "d-002", "capturedOrder": 3, "photoId": null,
+      "text": "Golden hour exterior of the plant sign", "afterCaptureId": null,
+      "section": "additionalPhotography" }
+  ],
+
+  "outlineAssignments": [
+    { "id": "oa-001", "mediaRef": { "kind": "capture", "id": "cap-001" },
+      "bookId": "b-001", "chapterId": "c-101", "sectionId": "s-1-1", "nodeId": null,
+      "source": "auto", "confidence": 0.91, "confirmed": true },
+    { "id": "oa-002", "mediaRef": { "kind": "capture", "id": "cap-002" },
+      "bookId": "b-001", "chapterId": "c-102", "sectionId": "s-2-1", "nodeId": null,
+      "source": "manual", "confidence": null, "confirmed": true },
+    { "id": "oa-003", "mediaRef": { "kind": "photoCapture", "id": "pc-001" },
+      "bookId": "b-001", "chapterId": "c-101", "sectionId": "s-1-2", "nodeId": null,
+      "source": "auto", "confidence": 0.64, "confirmed": false }
+  ]
+}

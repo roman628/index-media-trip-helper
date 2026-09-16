@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "tripId": "trip-sample-0001",
+  "importedAt": "2026-09-12T18:00:00Z",
+  "source": "typed in app",
+
+  "chapters": [
+    { "id": "c-101", "bookId": "b-001", "number": 1, "name": "Recognizing a Confined Space" },
+    { "id": "c-102", "bookId": "b-001", "number": 2, "name": "Permits and Atmospheric Testing" },
+    { "id": "c-201", "bookId": "b-002", "number": 1, "name": "Isolating Energy Sources" },
+    { "id": "c-202", "bookId": "b-002", "number": 2, "name": "Verification and Release" }
+  ],
+
+  "videos": [
+    {
+      "id": "v-001", "number": 1, "bookId": "b-001", "chapterId": "c-101",
+      "title": "Walkthrough: Identifying a Double Dead End Space",
+      "smeIds": ["p-006"], "smeText": "",
+      "sceneDescription": "Walk the east tank gallery, stopping at three spaces of increasing difficulty.",
+      "notes": [
+        { "id": "n-001", "label": "1", "text": "Open on the gallery entrance, wide.", "children": [] },
+        { "id": "n-002", "label": "2", "text": "SME points out limited entry and exit.", "children": [] },
+        { "id": "n-003", "label": "3", "text": "Discussion of steps", "children": [
+          { "id": "n-003a", "label": "a", "text": "Identify the opening", "children": [] },
+          { "id": "n-003b", "label": "b", "text": "Check for continuous occupancy", "children": [
+            { "id": "n-003b1", "label": "1", "text": "Ask what the space is used for", "children": [] },
+            { "id": "n-003b2", "label": "2", "text": "Note ventilation", "children": [] }
+          ] },
+          { "id": "n-003c", "label": "c", "text": "Decide: permit required or not", "children": [] }
+        ] }
+      ],
+      "photoRefs": ["ph-001", "ph-003"]
+    },
+    {
+      "id": "v-002", "number": 2, "bookId": "b-001", "chapterId": "c-101",
+      "title": "Entry Point Hazards",
+      "smeIds": ["p-006"], "smeText": "",
+      "sceneDescription": "Close coverage of the entry hatch and surrounding hazards.",
+      "notes": [
+        { "id": "n-010", "label": "1", "text": "Hatch open, tripod staged.", "children": [
+          { "id": "n-010a", "label": "a", "text": "Get the retrieval line in frame.", "children": [] }
+        ] }
+      ],
+      "photoRefs": ["ph-003", "ph-004"]
+    },
+    {
+      "id": "v-003", "number": 3, "bookId": "b-001", "chapterId": "c-102",
+      "title": "Filling Out the Entry Permit",
+      "smeIds": ["p-007"], "smeText": "",
+      "sceneDescription": "Tabletop, overhead angle on the permit.",
+      "notes": [
+        { "id": "n-020", "label": "1", "text": "Overhead of the blank permit.", "children": [] },
+        { "id": "n-021", "label": "2", "text": "SME narrates each section.", "children": [] }
+      ],
+      "photoRefs": ["ph-002"]
+    },
+    {
+      "id": "v-004", "number": 4, "bookId": "b-002", "chapterId": "c-201",
+      "title": "Applying the First Lock",
+      "smeIds": ["p-007"], "smeText": "",
+      "sceneDescription": "Motor control center, two cameras.",
+      "notes": [
+        { "id": "n-030", "label": "1", "text": "Wide of the MCC, then over the shoulder.", "children": [] }
+      ],
+      "photoRefs": ["ph-005", "ph-007"]
+    },
+    {
+      "id": "v-005", "number": 5, "bookId": "b-002", "chapterId": "c-202",
+      "title": "Try Step Verification",
+      "smeIds": ["p-007"], "smeText": "",
+      "sceneDescription": "Operator attempts start, confirms dead.",
+      "notes": [
+        { "id": "n-040", "label": "1", "text": "Hands on the start button, tight.", "children": [] }
+      ],
+      "photoRefs": ["ph-006"]
+    }
+  ],
+
+  "photos": [
+    { "id": "ph-001", "bookId": "b-001", "chapterId": null,    "heroType": "bookCover",   "order": 1, "description": "Book cover: worker at a tank hatch, backlit" },
+    { "id": "ph-002", "bookId": "b-001", "chapterId": "c-101", "heroType": "chapterHero", "order": 2, "description": "Ch.1 hero: gallery of confined spaces" },
+    { "id": "ph-003", "bookId": "b-001", "chapterId": "c-102", "heroType": "chapterHero", "order": 3, "description": "Ch.2 hero: completed permit on a clipboard" },
+    { "id": "ph-004", "bookId": "b-001", "chapterId": null,    "heroType": "none",        "order": 4, "description": "Detail: retrieval line and harness D-ring" },
+    { "id": "ph-005", "bookId": "b-002", "chapterId": null,    "heroType": "bookCover",   "order": 1, "description": "Book cover: lock array on a hasp" },
+    { "id": "ph-006", "bookId": "b-002", "chapterId": "c-201", "heroType": "chapterHero", "order": 2, "description": "Ch.1 hero: breaker in the off position, tagged" },
+    { "id": "ph-007", "bookId": "b-002", "chapterId": "c-202", "heroType": "chapterHero", "order": 3, "description": "Ch.2 hero: operator pressing start on a dead panel" },
+    { "id": "ph-008", "bookId": "b-002", "chapterId": null,    "heroType": "none",        "order": 4, "description": "Detail: personal lock with name tag" }
+  ]
+}

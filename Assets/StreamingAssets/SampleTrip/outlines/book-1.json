@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "tripId": "trip-sample-0001",
+  "bookId": "b-001",
+  "bookTitle": "Confined Space Entry",
+  "programName": "Workforce Development Guide",
+  "chapters": [
+    {
+      "id": "c-101",
+      "number": 1,
+      "name": "Recognizing a Confined Space",
+      "sections": [
+        {
+          "id": "s-1-1",
+          "number": "1.1",
+          "name": "What Makes a Space Confined",
+          "nodes": [
+            { "id": "o-111a", "label": "a", "text": "Limited means of entry and exit", "children": [] },
+            { "id": "o-111b", "label": "b", "text": "Not designed for continuous occupancy", "children": [
+              { "id": "o-111b1", "label": "1", "text": "Tanks and vaults", "children": [] },
+              { "id": "o-111b2", "label": "2", "text": "Pits and trenches", "children": [
+                { "id": "o-111b2i", "label": "i", "text": "Depth thresholds", "children": [] }
+              ] }
+            ] },
+            { "id": "o-111c", "label": "c", "text": "Large enough to enter and perform work", "children": [] }
+          ]
+        },
+        {
+          "id": "s-1-2",
+          "number": "1.2",
+          "name": "The Double Dead End Space",
+          "nodes": [
+            { "id": "o-112a", "label": "a", "text": "Why two blocked exits changes the rescue plan", "children": [] },
+            { "id": "o-112b", "label": "b", "text": "Walkthrough example", "children": [] }
+          ]
+        }
+      ],
+      "notes": "Consider opening the chapter on the gallery wide shot."
+    },
+    {
+      "id": "c-102",
+      "number": 2,
+      "name": "Permits and Atmospheric Testing",
+      "sections": [
+        {
+          "id": "s-2-1",
+          "number": "2.1",
+          "name": "When a Permit Is Required",
+          "nodes": [
+            { "id": "o-121a", "label": "a", "text": "Hazard triggers", "children": [] },
+            { "id": "o-121b", "label": "b", "text": "Who signs", "children": [] }
+          ]
+        },
+        {
+          "id": "s-2-2",
+          "number": "2.2",
+          "name": "Testing Order and Frequency",
+          "nodes": [
+            { "id": "o-122a", "label": "a", "text": "Oxygen, then flammables, then toxics", "children": [] }
+          ]
+        }
+      ],
+      "notes": ""
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "tripId": "trip-sample-0001",
+  "identity": {
+    "clientAbbrev": "ACME",
+    "programAbbrev": "WDG",
+    "phaseNumber": 5,
+    "location": { "city": "Boise", "state": "ID", "address": "1400 Sample Works Rd, Boise, ID" }
+  },
+  "dates": {
+    "arrive": "2026-09-14",
+    "depart": "2026-09-17",
+    "lastUpdated": "2026-09-12"
+  },
+  "weatherForecast": "Mon 78F sunny, Tue 74F partly cloudy, Wed 69F rain in the afternoon.",
+  "mediaFileName": "ACME_WDG_P5_BOISE",
+  "people": [
+    { "id": "p-001", "firstName": "Dana",  "lastName": "Reyes",   "org": "index",      "title": "Project Manager", "roles": ["projectManager", "personnel"] },
+    { "id": "p-002", "firstName": "Marco", "lastName": "Feld",    "org": "index",      "title": "Producer",        "roles": ["producer", "personnel"] },
+    { "id": "p-003", "firstName": "Sam",   "lastName": "Oyelaran","org": "index",      "title": "Photographer",    "roles": ["photographer", "editor", "personnel"] },
+    { "id": "p-004", "firstName": "Riley", "lastName": "Chen",    "org": "index",      "title": "Co-Producer",     "roles": ["coProducer", "personnel"] },
+    { "id": "p-005", "firstName": "Jo",    "lastName": "Varga",   "org": "index",      "title": "Writer",          "roles": ["writer"] },
+    { "id": "p-006", "firstName": "Terry", "lastName": "Blackwood","org": "client",    "title": "Line Supervisor",  "roles": ["sme"] },
+    { "id": "p-007", "firstName": "Nina",  "lastName": "Okoro",   "org": "client",     "title": "Safety Lead",      "roles": ["sme"] },
+    { "id": "p-008", "firstName": "Gus",   "lastName": "Halvorsen","org": "leadership","title": "Plant Manager",    "roles": ["leadershipRep"] }
+  ],
+  "logistics": [
+    "Meet in hotel lobby 6:45am each day.",
+    "Breakfast and lunch covered on site.",
+    "PPE needed: hard hat, safety glasses, steel toe, hi-vis vest.",
+    "Badge in at the north gate; escort required past the shop floor."
+  ],
+  "actions": [
+    { "id": "a-001", "text": "Review videos and reference points", "done": true },
+    { "id": "a-002", "text": "Assign SMEs to each video", "done": true },
+    { "id": "a-003", "text": "Begin gathering needed equipment and supplies", "done": false }
+  ],
+  "books": [
+    { "id": "b-001", "number": 1, "name": "Confined Space Entry",
+      "team": { "number": 1, "memberIds": ["p-002", "p-003"], "memberNames": ["Marco Feld", "Sam Oyelaran"] } },
+    { "id": "b-002", "number": 2, "name": "Lockout / Tagout",
+      "team": { "number": 2, "memberIds": ["p-002", "p-005"], "memberNames": ["Marco Feld", "Jo Varga"] } }
+  ],
+  "days": [
+    { "id": "d-001", "date": "2026-09-15", "label": "Day 1" },
+    { "id": "d-002", "date": "2026-09-16", "label": "Day 2" }
+  ]
+}
