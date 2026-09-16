@@ -1,0 +1,10 @@
+<!--
+  IL2CPP managed code stripping preservation.
+  Newtonsoft deserializes the model types by reflection (parameterless constructors,
+  property setters, extension-data dictionaries). Under Medium/High stripping those
+  members look unused and would be removed, so preserve both assemblies wholesale.
+-->
+<linker>
+  <assembly fullname="MediaTrip.Data" preserve="all" />
+  <assembly fullname="Newtonsoft.Json" preserve="all" />
+</linker>
