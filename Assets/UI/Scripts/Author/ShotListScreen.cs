@@ -201,13 +201,15 @@ namespace MediaTrip.UI.Author
             }
             if (!string.IsNullOrEmpty(v.SmeText))
                 chips.Add(U.ChipX(U.Esc(v.SmeText), () => ed.UpdateVideo(v.Id, x => x.SmeText = ""), "h44"));
-            var smeInput = U.Input(L.SmeQ, "+ name", q => { L.SmeQ = q; app.RenderKeepFocus("sl.smeQ"); }, false, "h44").W(200);
+            var smeInput = U.Input(L.SmeQ, "+ name", null, false, "h44").W(200);
             smeInput.name = "sl.smeQ";
             chips.Add(smeInput);
             smeCol.Add(chips);
-            if (!string.IsNullOrWhiteSpace(L.SmeQ))
+            app.ClosePopupWhenBlurred(smeInput);
+            void RefreshSme()
             {
-                var box = new VisualElement().Cls("sugg"); box.style.position = Position.Relative;
+                if (string.IsNullOrWhiteSpace(L.SmeQ)) { app.ClosePopup(); return; }
+                var box = new VisualElement().Cls("sugg"); box.style.position = Position.Relative; box.style.marginTop = 0;
                 foreach (var m in s.Search.SuggestNames(L.SmeQ, NameScope.Sme, 4).Where(m => m.Item.Person != null && !(v.SmeIds ?? new List<string>()).Contains(m.Item.Person.Id)))
                 {
                     var p = m.Item.Person;
@@ -220,8 +222,10 @@ namespace MediaTrip.UI.Author
                     ed.UpdateVideo(v.Id, x => { if (!x.SmeIds.Contains(p.Id)) x.SmeIds.Add(p.Id); });
                     app.Toast("Added " + name + " to people as SME");
                 }, "sugg-row", U.Text("Use “" + U.Esc(L.SmeQ.Trim()) + "” · adds to people as SME").Cls("grow")));
-                smeCol.Add(box);
+                app.ShowPopup(smeInput, box, 420);
             }
+            smeInput.RegisterValueChangedCallback(e => { L.SmeQ = e.newValue; RefreshSme(); });
+            if (!string.IsNullOrWhiteSpace(L.SmeQ)) smeInput.schedule.Execute(RefreshSme).StartingIn(1);
             two.Add(smeCol);
             var scene = U.Input(v.SceneDescription, null, val2 => app.Edit(() => ed.UpdateVideo(v.Id, x => x.SceneDescription = val2)), true).H(64);
             scene.name = "video:" + v.Id + ":scene";

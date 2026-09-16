@@ -71,7 +71,7 @@ namespace MediaTrip.UI.Author
             var edit = new VisualElement().Cls("edit");
             var bar = U.Row().H(64).Pad(0, 20).Cls("bordered-bottom");
             bar.Add(U.H2(current.name).Cls("grow"));
-            bar.Add(U.Btn("Copy", () => { if (app.Transfer.CopyDocumentToClipboard(d, current.kind, current.bookId, out var m)) app.Toast(m); else app.Toast(m); }, "sm"));
+            bar.Add(U.Btn("Copy", () => { UnityEngine.GUIUtility.systemCopyBuffer = text; app.Toast("Copied " + current.name + " to the clipboard"); }, "sm"));
             edit.Add(bar);
             var code = U.Scroll().Cls("bodyE").Pad(8, 0);
             VisualElement firstHl = null;

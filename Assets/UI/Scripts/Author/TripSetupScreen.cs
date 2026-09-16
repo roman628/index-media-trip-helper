@@ -155,24 +155,22 @@ namespace MediaTrip.UI.Author
                 }
                 var memberQ = new TextField(); memberQ.name = "member:" + b.Id; memberQ.Cls("inp h44").W(220);
                 memberQ.textEdition.placeholder = "+ add name";
-                var suggHost = new VisualElement();
+                app.ClosePopupWhenBlurred(memberQ);
                 memberQ.RegisterValueChangedCallback(e =>
                 {
-                    suggHost.Clear();
                     var q = e.newValue;
-                    if (string.IsNullOrWhiteSpace(q)) return;
-                    var box = new VisualElement().Cls("sugg"); box.style.position = Position.Relative; box.style.width = 320;
+                    if (string.IsNullOrWhiteSpace(q)) { app.ClosePopup(); return; }
+                    var box = new VisualElement().Cls("sugg"); box.style.position = Position.Relative; box.style.marginTop = 0;
                     foreach (var m in s.Search.SuggestNames(q, NameScope.Any, 4))
                     {
                         var item = m.Item;
                         box.Add(U.Tap(() => AddMember(app, bid, item.Name, item.Person), "sugg-row", U.Text(U.Esc(item.Name), "bold").Cls("grow"), U.Sub(U.Esc(item.Title ?? ""))));
                     }
                     box.Add(U.Tap(() => AddMember(app, bid, q.Trim(), null), "sugg-row", U.Text("Add “" + U.Esc(q.Trim()) + "” as a new person").Cls("grow")));
-                    suggHost.Add(box);
+                    app.ShowPopup(memberQ, box, 360);
                 });
                 members.Add(memberQ);
                 col.Add(members);
-                col.Add(suggHost);
                 card.Add(col);
                 books.Add(card);
             }

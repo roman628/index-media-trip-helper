@@ -13,16 +13,19 @@ Everything is JSON on disk, fully offline. No accounts, no network, no cloud ser
   itself is never edited in the field.
 - **Authoring mode**: trip setup, people registry, shot-list editor, outline editor,
   amendment review, import/export, and a JSON inspector with validation.
-- **Transfer**: a trip is authored on a computer and moved to the iPad. Three routes exist:
-  the iOS Files picker (native plugin), the app's own folder shown in Files, and the clipboard
-  (copy a whole trip as JSON on one device, paste on the other). Every import is validated
-  first and applied all at once or not at all.
+- **Transfer**: a trip is authored on a computer and moved to the iPad. One Share button
+  writes a zip (or a single-file JSON bundle where zipping is unavailable) and hands it to the
+  platform: the iOS share sheet, a save dialog in the Editor, or the app's Export folder in a
+  standalone build. One Import button accepts a whole trip or a single document and detects
+  which. The app's own folder is also visible in the iOS Files app. Every import is validated
+  first and applied all at once or not at all. A fresh install starts with an empty library.
 
 ## Opening the project
 
 - Unity 6000.3.10f1. Open the project folder in the Unity Hub or Editor.
-- The scene is `Assets/Scenes/SampleScene.unity`. Press Play. On first run the bundled sample
-  trip is imported into the library so the app is never empty.
+- The scene is `Assets/Scenes/SampleScene.unity`. Press Play. A fresh library is empty: create
+  a trip, or import `Assets/StreamingAssets/SampleTrip` (a plain trip folder) to try the app
+  with the fake sample data.
 - Development and testing happen on Windows in Play mode. iOS builds are made on a Mac:
   switch the platform to iOS, build, open the Xcode project, sign, and run to a device. The
   post-build step in `Assets/Editor` sets the Info.plist flags that expose the app's folder

@@ -104,12 +104,9 @@ namespace MediaTrip.UI
             public string Stage = "idle";
             public ImportReport Report;
             public string SourceLabel;
-            public string PendingJson;
             public string PendingPath;
             public string LastMessage;
             public bool LastMessageIsError;
-            public string PasteText;
-            public bool PasteOpen;
         }
 
         public sealed class JsonState

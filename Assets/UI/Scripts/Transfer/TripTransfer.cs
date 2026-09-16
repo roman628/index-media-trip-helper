@@ -11,7 +11,7 @@ namespace MediaTrip.UI.Transfer
     public sealed class ExportResult
     {
         public string Path;
-        /// <summary>"zip" or "bundle" (the automatic fallback when zipping is unavailable).</summary>
+        /// <summary>"zip", "bundle" (the automatic fallback when zipping is unavailable), or "document".</summary>
         public string Format;
         public string Warning;
         public bool Ok => Path != null;
@@ -19,10 +19,10 @@ namespace MediaTrip.UI.Transfer
     }
 
     /// <summary>
-    /// The three transfer routes and the glue around the data layer's packaging:
-    /// 1. native picker / OS dialog (primary), 2. the app's own Import/Export folders (visible
-    /// in the iOS Files app thanks to the Info.plist flags), 3. the clipboard as JSON.
-    /// Every failure is reported in words, never swallowed.
+    /// Two calls the UI binds to: <see cref="ShareTrip"/> / <see cref="ShareDocument"/> write a
+    /// file and hand it to the platform's share gesture; <see cref="BeginImport"/> asks the
+    /// platform for a file and returns its path. Validation and commit stay in the data layer
+    /// (<see cref="TripPackage"/>). Every failure is reported in words, never swallowed.
     /// </summary>
     public sealed class TripTransfer
     {
@@ -45,7 +45,38 @@ namespace MediaTrip.UI.Transfer
             catch (Exception ex) { Debug.LogWarning("Could not create transfer folders: " + ex.Message); }
         }
 
-        // ------------------------------------------------------------------ export
+        // ------------------------------------------------------------------ share (one call per thing)
+
+        /// <summary>Share the whole trip: a zip, or a single-file JSON bundle where zipping is unavailable on the device.</summary>
+        public void ShareTrip(TripData data, Action<string> onDone, Action<string> onFail)
+        {
+            var r = ExportTripFile(data);
+            if (!r.Ok) { onFail?.Invoke(r.Error); return; }
+            var note = r.Warning != null ? " " + r.Warning : "";
+            Picker.Share(r.Path, m => onDone?.Invoke(m + note), m => { if (m != null) onFail?.Invoke(m); else onDone?.Invoke("Written to " + r.Path + note); });
+        }
+
+        /// <summary>Share one document (trip.json, shotlist.json, captures.json, or an outline).</summary>
+        public void ShareDocument(TripData data, DocumentKind kind, string bookId, Action<string> onDone, Action<string> onFail)
+        {
+            var r = ExportDocumentFile(data, kind, bookId);
+            if (!r.Ok) { onFail?.Invoke(r.Error); return; }
+            Picker.Share(r.Path, m => onDone?.Invoke(m), m => { if (m != null) onFail?.Invoke(m); else onDone?.Invoke("Written to " + r.Path); });
+        }
+
+        // ------------------------------------------------------------------ import (one call)
+
+        /// <summary>
+        /// Ask the platform for a file to import. On platforms with no chooser the callback
+        /// gets a null path and the UI offers the Import-folder list instead.
+        /// </summary>
+        public void BeginImport(Action<string> onPath, Action<string> onCancelled)
+        {
+            if (!Picker.CanPick) { onPath?.Invoke(null); return; }
+            Picker.PickImport(onPath, onCancelled);
+        }
+
+        // ------------------------------------------------------------------ files
 
         public static string SafeName(TripData d)
         {
@@ -73,7 +104,7 @@ namespace MediaTrip.UI.Transfer
                         r.Path = zipPath; r.Format = "zip";
                         return r;
                     }
-                    r.Warning = "Zip is not available on this device (" + err + "); exported a single JSON bundle instead.";
+                    r.Warning = "Zip is not available on this device (" + err + "); shared a single JSON bundle instead.";
                     Debug.LogWarning(r.Warning);
                 }
                 var bundlePath = Path.Combine(ExportDir, baseName + ".mediatrip.json");
@@ -114,41 +145,9 @@ namespace MediaTrip.UI.Transfer
             }
         }
 
-        // ------------------------------------------------------------------ clipboard
-
-        public bool CopyTripToClipboard(TripData data, out string message)
-        {
-            try
-            {
-                var json = TripPackage.ExportBundleJson(data);
-                GUIUtility.systemCopyBuffer = json;
-                message = "Copied whole trip to the clipboard (" + (json.Length / 1024) + " KB). Paste it on the other device.";
-                return true;
-            }
-            catch (Exception ex) { message = "Copy failed: " + ex.Message; Debug.LogException(ex); return false; }
-        }
-
-        public bool CopyDocumentToClipboard(TripData data, DocumentKind kind, string bookId, out string message)
-        {
-            try
-            {
-                var json = TripPackage.ExportDocumentJson(data, kind, bookId);
-                GUIUtility.systemCopyBuffer = json;
-                message = "Copied " + DocumentFileName(data, kind, bookId) + " to the clipboard.";
-                return true;
-            }
-            catch (Exception ex) { message = "Copy failed: " + ex.Message; Debug.LogException(ex); return false; }
-        }
-
-        public string ReadClipboard()
-        {
-            try { return GUIUtility.systemCopyBuffer; }
-            catch (Exception ex) { Debug.LogWarning("Clipboard read failed: " + ex.Message); return null; }
-        }
-
         // ------------------------------------------------------------------ validate (dry run)
 
-        /// <summary>Validate a file by extension and content. Never writes.</summary>
+        /// <summary>Validate a file by extension and content, detecting zip / folder / bundle / single document. Never writes.</summary>
         public ImportReport ValidatePath(string path)
         {
             try
@@ -168,13 +167,9 @@ namespace MediaTrip.UI.Transfer
             }
         }
 
-        public ImportReport ValidateText(string text, string sourceLabel) => TripPackage.ValidateJsonText(text, null, sourceLabel);
-
         /// <summary>For a single-document report, validate it against the open trip so the preview shows the merged result.</summary>
         public ImportReport ValidateDocumentAgainstOpenTrip(string json, DocumentKind kind, string sourceLabel) =>
             TripPackage.ValidateDocument(_app.Session.Data, json, kind, sourceLabel);
-
-        // ------------------------------------------------------------------ commit
 
         /// <summary>Commit a whole-trip report (zip/folder/bundle) into the library, replacing an existing trip with the same id.</summary>
         public string CommitWholeTrip(ImportReport report) => TripPackage.Commit(report, overwrite: true);
@@ -188,6 +183,13 @@ namespace MediaTrip.UI.Transfer
                 list.AddRange(Directory.GetFiles(dir).Where(f => f.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".json", StringComparison.OrdinalIgnoreCase)));
             }
             return list.Distinct().OrderByDescending(File.GetLastWriteTimeUtc).ToList();
+        }
+
+        /// <summary>Clipboard text, used only for pasting notes as bullets.</summary>
+        public string ReadClipboard()
+        {
+            try { return GUIUtility.systemCopyBuffer; }
+            catch (Exception ex) { Debug.LogWarning("Clipboard read failed: " + ex.Message); return null; }
         }
     }
 }

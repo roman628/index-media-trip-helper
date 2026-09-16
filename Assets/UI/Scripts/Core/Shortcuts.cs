@@ -61,7 +61,11 @@ namespace MediaTrip.UI
 
         private static void OnKey(AppController app, KeyDownEvent e)
         {
-            if (app.Session == null) return;
+            if (app.Session == null)
+            {
+                if (e.keyCode == KeyCode.Escape && app.HasSheet) { app.CloseSheet(); Consume(e); }
+                return;
+            }
             var meta = IsMeta(e);
             var state = app.State;
             var tf = FocusedField(app.Root);
@@ -87,7 +91,7 @@ namespace MediaTrip.UI
                 if (state.DetailItemId != null) { state.DetailItemId = null; app.Render(); Consume(e); return; }
                 if (state.SL.Paste != null) { state.SL.Paste = null; app.Render(); Consume(e); return; }
                 if (state.OL.Paste != null) { state.OL.Paste = null; app.Render(); Consume(e); return; }
-                if (state.IO.PasteOpen) { state.IO.PasteOpen = false; app.Render(); Consume(e); return; }
+                if (app.HasPopup) { app.ClosePopup(); Consume(e); return; }
                 if (state.AmendEdit != null) { state.AmendEdit = null; app.Render(); Consume(e); return; }
                 if (tf != null) { tf.Blur(); state.Focus = null; Consume(e); return; }
                 if (!string.IsNullOrEmpty(state.Query)) { state.Query = ""; app.Render(); Consume(e); return; }

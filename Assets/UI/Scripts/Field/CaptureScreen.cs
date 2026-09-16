@@ -95,30 +95,31 @@ namespace MediaTrip.UI.Field
                 }
                 Button addBtn = null;
                 VisualElement suggHost = null;
-                var nameField = U.Input(dr.PersonName, "Name", v => { dr.PersonName = v; RefreshPeopleSugg(); }); nameField.name = "cap.personName";
+                TextField nameField = null;
+                nameField = U.Input(dr.PersonName, "Name", v => { dr.PersonName = v; RefreshPeopleSugg(); }); nameField.name = "cap.personName";
                 var titleField = U.Input(dr.PersonTitle, "Title", v => dr.PersonTitle = v).W(220); titleField.style.marginLeft = 8; titleField.style.marginRight = 8;
                 addBtn = U.Btn("Add", () => { dr.AddPerson(dr.PersonName, dr.PersonTitle); app.RenderKeepFocus("cap.personName"); }, "pri");
                 var inputRow = U.Row(nameField.Cls("grow"), titleField, addBtn);
                 people.Add(inputRow);
                 suggHost = new VisualElement();
-                people.Add(suggHost);
+                app.ClosePopupWhenBlurred(nameField);
                 void RefreshPeopleSugg()
                 {
-                    suggHost.Clear();
                     addBtn.SetEnabled(!string.IsNullOrWhiteSpace(dr.PersonName));
-                    if (string.IsNullOrWhiteSpace(dr.PersonName)) return;
+                    if (string.IsNullOrWhiteSpace(dr.PersonName)) { app.ClosePopup(); return; }
                     var matches = s.Search.SuggestNames(dr.PersonName, NameScope.Sme, 4);
-                    if (matches.Count == 0) return;
-                    var box = new VisualElement().Cls("sugg"); box.style.position = Position.Relative; box.style.width = Length.Percent(60);
+                    if (matches.Count == 0) { app.ClosePopup(); return; }
+                    var box = new VisualElement().Cls("sugg"); box.style.position = Position.Relative; box.style.marginTop = 0;
                     foreach (var m in matches)
                     {
                         var n = m.Item;
                         box.Add(U.Tap(() => { dr.AddPerson(n.Name, n.Title, n.Person?.Id); app.RenderKeepFocus("cap.personName"); }, "sugg-row",
                             U.Text(U.Esc(n.Name), "bold").Cls("grow"), U.Sub(U.Esc(n.Title ?? ""))));
                     }
-                    suggHost.Add(box);
+                    app.ShowPopup(nameField, box, 420);
                 }
-                RefreshPeopleSugg();
+                if (!string.IsNullOrWhiteSpace(dr.PersonName)) nameField.schedule.Execute(RefreshPeopleSugg).StartingIn(1);
+                else addBtn.SetEnabled(false);
                 left.Add(people);
                 left.Add(U.Field("Location", U.Input(dr.Location, null, v => dr.Location = v)));
                 left.Add(U.Field("Notes · dictation works here", U.Input(dr.Notes, null, v => dr.Notes = v, true)));

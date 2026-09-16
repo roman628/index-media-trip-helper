@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using MediaTrip.Model;
 using MediaTrip.Persistence;
+using MediaTrip.UI.Transfer;
 using MediaTrip.UI.ViewModels;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -115,13 +116,15 @@ namespace MediaTrip.UI.Shell
             sheet.style.maxHeight = 720;
             var head = U.Row(U.Col(U.H1("Media trips"), U.Sub("Stored on this device · JSON")).Cls("grow"),
                 U.Btn("+ New trip", () => NewTrip(app), "pri"),
-                U.Btn("Import…", () => { app.CloseSheet(); app.Nav(Screen.IO); }, "ml10"),
+                U.Btn("Import…", () => { app.CloseSheet(); ImportFlow.Begin(app); }, "ml10"),
                 U.Btn("Close", app.CloseSheet, "sm ml10")).Mb(16);
             sheet.Add(head);
             var list = U.Scroll();
-            foreach (var t in TripLibrary.ListTrips())
+            var trips = TripLibrary.ListTrips();
+            if (trips.Count == 0) list.Add(U.Sub("No trips on this device yet."));
+            foreach (var t in trips)
             {
-                var current = t.TripId == app.Session.Data.TripId;
+                var current = app.Session != null && t.TripId == app.Session.Data.TripId;
                 var card = U.Card().Cls("row").Mb(12).MinH(96);
                 if (current) card.Cls("ac");
                 string sub;
@@ -173,14 +176,14 @@ namespace MediaTrip.UI.Shell
                 sheet.Add(U.Body("This removes the trip's folder from this device. Export it first if you want a copy.").Mb(16));
                 sheet.Add(U.Row(U.Btn("Cancel", () => Open(app), "big"), U.Grow(), U.Btn("Delete trip", () =>
                 {
-                    var wasCurrent = t.TripId == app.Session.Data.TripId;
+                    var wasCurrent = app.Session != null && t.TripId == app.Session.Data.TripId;
                     if (wasCurrent) app.CloseTrip();
                     TripLibrary.DeleteTrip(t.TripId);
                     app.CloseSheet();
                     if (wasCurrent)
                     {
                         var next = TripLibrary.ListTrips().FirstOrDefault(x => x.LoadError == null);
-                        if (next != null) app.OpenTrip(next.TripId); else { var c = TripLibrary.CreateTrip("NEW", "TRIP"); app.OpenTrip(c.TripId); }
+                        if (next != null) app.OpenTrip(next.TripId); else app.Render();
                     }
                     app.Toast("Deleted " + t.DisplayName);
                 }, "big danger")));

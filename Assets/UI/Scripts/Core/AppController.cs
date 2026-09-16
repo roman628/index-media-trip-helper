@@ -14,10 +14,10 @@ using UnityEngine.UIElements;
 namespace MediaTrip.UI
 {
     /// <summary>
-    /// The app: owns the open TripSession, the UI state, the theme, and the render loop.
-    /// Screens are rebuilt from state on every render (the data is small); text fields that
-    /// edit the trip use <see cref="Edit"/> so typing does not trigger a rebuild, and the
-    /// focused field is restored by name after a rebuild.
+    /// The app: owns the open TripSession (may be null when the library is empty), the UI
+    /// state, the theme, the overlay layer and the render loop. Screens are rebuilt from state
+    /// on every render; text fields that edit the trip use <see cref="Edit"/> so typing does
+    /// not trigger a rebuild, and the focused field is restored by name after a rebuild.
     /// </summary>
     [RequireComponent(typeof(UIDocument))]
     public sealed class AppController : MonoBehaviour
@@ -31,19 +31,27 @@ namespace MediaTrip.UI
         public ValidationSummary Validation { get; private set; }
         public DateTime? LastSaved { get; private set; }
         public VisualElement Root { get; private set; }
+        public LayoutInfo Layout { get; private set; }
+        public event Action<LayoutInfo> LayoutChanged;
+        public bool HasTrip => Session != null;
 
-        /// <summary>Set by the active editor screen: handles accessory-bar actions ("sib", "child", "in", "out", "up", "down", "dup", "del", "paste"). Returns true if handled.</summary>
+        /// <summary>Set by the active editor screen: handles accessory-bar actions. Returns true if handled.</summary>
         public Func<string, bool> AccessoryAction;
         /// <summary>Set by the active screen for list navigation keys. Returns true if handled.</summary>
         public Func<KeyDownEvent, bool> ScreenKeys;
 
         private UIDocument _doc;
-        private VisualElement _topHost, _bodyHost, _overlayHost, _toastHost;
+        private VisualElement _topHost, _bodyHost, _popupLayer, _modalLayer, _toastHost;
         private TripAutosaveBehaviour _autosave;
         private int _suppress;
         private bool _renderScheduled;
         private Label _toast;
         private IVisualElementScheduledItem _toastTimer;
+        private VisualElement _sheet;
+        private Func<VisualElement> _sheetBuilder;
+        private VisualElement _popup;
+        private VisualElement _popupAnchor;
+        private IVisualElementScheduledItem _popupCloser;
 
         private void OnEnable()
         {
@@ -52,11 +60,12 @@ namespace MediaTrip.UI
             Root = root.Q("app") ?? root;
             _topHost = Root.Q("top-host");
             _bodyHost = Root.Q("body-host");
-            _overlayHost = Root.Q("overlay-host");
+            _popupLayer = Root.Q("popup-layer");
+            _modalLayer = Root.Q("modal-layer");
             _toastHost = Root.Q("toast-host");
-            if (_topHost == null || _bodyHost == null)
+            if (_topHost == null || _bodyHost == null || _popupLayer == null || _modalLayer == null)
             {
-                Debug.LogError("App.uxml is missing its hosts; run Media Trip > Set Up Scene.");
+                Debug.LogError("App.uxml is missing its hosts; reimport Assets/UI and run Media Trip > Set Up Scene.");
                 return;
             }
             var app = Resources.Load<StyleSheet>("Styles/App");
@@ -66,6 +75,8 @@ namespace MediaTrip.UI
             Transfer = new TripTransfer(this);
             NativeBridge.Ensure();
             Shortcuts.Attach(this, Root);
+            Root.RegisterCallback<GeometryChangedEvent>(_ => ApplyLayout());
+            ApplyLayout();
             Boot();
         }
 
@@ -78,23 +89,33 @@ namespace MediaTrip.UI
         {
             try
             {
-                TripLibrary.EnsureSampleIfEmpty();
                 var last = PlayerPrefs.GetString(PrefLastTrip, null);
                 var trips = TripLibrary.ListTrips();
                 var pick = trips.FirstOrDefault(t => t.TripId == last && t.LoadError == null) ?? trips.FirstOrDefault(t => t.LoadError == null);
                 if (pick != null) OpenTrip(pick.TripId);
-                else
-                {
-                    var created = TripLibrary.CreateTrip("NEW", "TRIP");
-                    OpenTrip(created.TripId);
-                }
+                else Render();
             }
             catch (Exception ex)
             {
                 Debug.LogException(ex);
                 _bodyHost.Clear();
-                _bodyHost.Add(U.Text("Could not open a trip: " + ex.Message, "h3 bad-text").Pad(24));
+                _bodyHost.Add(U.Text("Could not open the trip library: " + ex.Message, "h3 bad-text").Pad(24));
             }
+        }
+
+        // ------------------------------------------------------------------ layout classes
+
+        private void ApplyLayout()
+        {
+            var w = Root.resolvedStyle.width;
+            var h = Root.resolvedStyle.height;
+            if (float.IsNaN(w) || float.IsNaN(h) || w <= 0 || h <= 0) return;
+            var info = new LayoutInfo(w, h);
+            var changed = !info.SameAs(Layout);
+            Layout = info;
+            foreach (var c in LayoutInfo.AllClasses) Root.RemoveFromClassList(c);
+            foreach (var c in info.Classes()) Root.AddToClassList(c);
+            if (changed) LayoutChanged?.Invoke(info);
         }
 
         // ------------------------------------------------------------------ trip lifecycle
@@ -125,9 +146,11 @@ namespace MediaTrip.UI
             State.OL.Chapter = Session.Data.FindOutline(State.OL.Book)?.Chapters.FirstOrDefault()?.Id;
             State.Renumber.Snapshot(Session.Data);
             foreach (var b in t.Books.Skip(Math.Max(0, t.Books.Count - 1))) State.OpenBooks.Add(b.Id);
+            _sheet = null; _sheetBuilder = null;
             Render();
         }
 
+        /// <summary>Close the open trip; the app shows the empty library state until another is opened.</summary>
         public void CloseTrip()
         {
             if (Session == null) return;
@@ -135,6 +158,7 @@ namespace MediaTrip.UI
             if (_autosave != null) { _autosave.Detach(); _autosave = null; }
             Session.Dispose();
             Session = null;
+            Validation = null;
         }
 
         public void ReloadCurrentTrip()
@@ -171,19 +195,27 @@ namespace MediaTrip.UI
 
         public void Render()
         {
-            if (Session == null || _topHost == null) return;
+            if (_topHost == null) return;
             AccessoryAction = null;
             ScreenKeys = null;
+            ClosePopup();
             try
             {
                 _topHost.Clear();
-                _topHost.Add(TopBar.Build(this));
                 _bodyHost.Clear();
-                _bodyHost.Add(BuildScreen());
-                _overlayHost.Clear();
+                _modalLayer.Clear();
+                if (Session == null)
+                {
+                    _bodyHost.Add(EmptyLibraryScreen.Build(this));
+                }
+                else
+                {
+                    _topHost.Add(TopBar.Build(this));
+                    _bodyHost.Add(BuildScreen());
+                }
                 var overlay = BuildOverlay();
-                if (overlay != null) { _overlayHost.Add(overlay); _overlayHost.pickingMode = PickingMode.Position; }
-                else _overlayHost.pickingMode = PickingMode.Ignore;
+                if (overlay != null) { _modalLayer.Add(overlay); _modalLayer.pickingMode = PickingMode.Position; }
+                else _modalLayer.pickingMode = PickingMode.Ignore;
             }
             catch (Exception ex)
             {
@@ -216,28 +248,26 @@ namespace MediaTrip.UI
 
         private VisualElement BuildOverlay()
         {
+            if (_sheet != null) return _sheet;
+            if (Session == null) return null;
             if (State.Help) return HelpSheet.Build(this);
             if (State.Amend != null) return AmendSheet.Build(this);
             if (State.DetailItemId != null && (State.Screen == Screen.Today || State.Screen == Screen.Heroes || State.Screen == Screen.Coverage)) return VideoDetail.Sheet(this, State.DetailItemId);
             if (State.SL.Paste != null && State.Screen == Screen.ShotList) return PasteSheet.Build(this, "shotlist");
             if (State.OL.Paste != null && State.Screen == Screen.Outline) return PasteSheet.Build(this, "outline");
             if (State.AmendEdit != null && State.Screen == Screen.Amend) return AmendmentsScreen.EditSheet(this);
-            if (State.IO.PasteOpen && State.Screen == Screen.IO) return ImportExportScreen.PasteSheet(this);
-            if (_sheet != null) return _sheet;
             return null;
         }
 
-        private VisualElement _sheet;
+        // ------------------------------------------------------------------ overlay layer: sheets
 
-        /// <summary>Show an ad-hoc sheet (theme picker, trip library, confirmations). Survives re-renders until closed.</summary>
+        /// <summary>Show an ad-hoc sheet (theme picker, trip library, confirmations) in the modal layer. Survives re-renders until closed.</summary>
         public void ShowSheet(Func<VisualElement> build)
         {
             _sheetBuilder = build;
             _sheet = build();
             Render();
         }
-
-        private Func<VisualElement> _sheetBuilder;
 
         public void CloseSheet()
         {
@@ -254,6 +284,61 @@ namespace MediaTrip.UI
             overlay.RegisterCallback<ClickEvent>(e => { if (e.target == overlay) onBackdrop?.Invoke(); });
             overlay.Add(sheet);
             return overlay;
+        }
+
+        // ------------------------------------------------------------------ overlay layer: anchored popups
+
+        /// <summary>
+        /// Show a popup (suggestion list, dropdown) in the top-level popup layer, positioned
+        /// under <paramref name="anchor"/>. Only one popup at a time; it closes on the next
+        /// render, on <see cref="ClosePopup"/>, or shortly after the anchored field loses focus.
+        /// </summary>
+        public VisualElement ShowPopup(VisualElement anchor, VisualElement content, float width, float maxHeight = 520, float offsetX = 0)
+        {
+            ClosePopup();
+            if (anchor == null || content == null) return null;
+            content.style.position = Position.Absolute;
+            content.style.width = width;
+            content.style.maxHeight = maxHeight;
+            _popup = content;
+            _popupAnchor = anchor;
+            _popupLayer.Add(content);
+            _popupLayer.pickingMode = PickingMode.Ignore;
+            PositionPopup(offsetX);
+            anchor.RegisterCallback<GeometryChangedEvent>(_ => PositionPopup(offsetX));
+            return content;
+        }
+
+        private void PositionPopup(float offsetX)
+        {
+            if (_popup == null || _popupAnchor == null) return;
+            var a = _popupAnchor.worldBound;
+            var l = _popupLayer.worldBound;
+            var left = a.xMin - l.xMin + offsetX;
+            var maxLeft = Mathf.Max(0, l.width - (_popup.resolvedStyle.width > 0 ? _popup.resolvedStyle.width : _popup.style.width.value.value) - 8);
+            _popup.style.left = Mathf.Clamp(left, 0, maxLeft);
+            _popup.style.top = a.yMax - l.yMin + 4;
+        }
+
+        public void ClosePopup()
+        {
+            _popupCloser?.Pause();
+            _popupCloser = null;
+            if (_popup != null) _popup.RemoveFromHierarchy();
+            _popup = null;
+            _popupAnchor = null;
+        }
+
+        public bool HasPopup => _popup != null;
+
+        /// <summary>Close the popup a moment after the field loses focus (long enough for a tap on a popup row to land first).</summary>
+        public void ClosePopupWhenBlurred(VisualElement field)
+        {
+            field.RegisterCallback<FocusOutEvent>(_ =>
+            {
+                _popupCloser?.Pause();
+                _popupCloser = Root.schedule.Execute(() => { if (_popupAnchor == field || _popupAnchor?.parent == field) ClosePopup(); }).StartingIn(220);
+            });
         }
 
         private void RestoreFocus()
@@ -281,12 +366,14 @@ namespace MediaTrip.UI
 
         public void Nav(Screen s)
         {
+            if (Session == null) { Render(); return; }
             State.Screen = s;
             State.Mode = Screens.IsField(s) ? Mode.Field : Mode.Author;
             State.Help = false;
             State.Query = "";
             State.Focus = null;
             _sheet = null;
+            _sheetBuilder = null;
             if (s == Screen.Capture && State.Capture == null) State.Capture = new CaptureDraft();
             if (s == Screen.ShotList && !State.Renumber.HasSnapshot) State.Renumber.Snapshot(Session.Data);
             Render();
@@ -329,7 +416,7 @@ namespace MediaTrip.UI
 
         // ------------------------------------------------------------------ helpers used by screens
 
-        public string TodayId => State.DayId ?? Session.Data.Trip.Days.LastOrDefault()?.Id;
+        public string TodayId => State.DayId ?? Session?.Data.Trip.Days.LastOrDefault()?.Id;
 
         public string EnsureDay()
         {

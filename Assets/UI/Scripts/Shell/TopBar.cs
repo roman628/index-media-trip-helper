@@ -111,17 +111,20 @@ namespace MediaTrip.UI.Shell
             var clear = U.Tap(() => { s.Query = ""; app.RenderKeepFocus("q"); }, "x", new Glyph(GlyphKind.Cross, 16));
             clear.Hide(string.IsNullOrEmpty(s.Query));
             search.Add(clear);
-            var drop = new VisualElement { name = "search-drop" };
-            drop.style.position = Position.Absolute;
-            drop.style.left = -120; drop.style.width = 620; drop.style.top = Length.Percent(100);
-            search.Add(drop);
-            SearchDropdown.Fill(app, drop);
+            app.ClosePopupWhenBlurred(tf);
+            void Refresh()
+            {
+                if (string.IsNullOrWhiteSpace(s.Query)) { app.ClosePopup(); return; }
+                var box = SearchDropdown.Build(app);
+                app.ShowPopup(search, box, 620, 520, -120);
+            }
+            if (!string.IsNullOrWhiteSpace(s.Query)) search.schedule.Execute(Refresh).StartingIn(1);
             tf.RegisterValueChangedCallback(e =>
             {
                 s.Query = e.newValue;
                 search.On(!string.IsNullOrEmpty(s.Query));
                 clear.Hide(string.IsNullOrEmpty(s.Query));
-                SearchDropdown.Fill(app, drop);
+                Refresh();
             });
             return search;
         }
@@ -129,18 +132,17 @@ namespace MediaTrip.UI.Shell
 
     public static class SearchDropdown
     {
-        public static void Fill(AppController app, VisualElement host)
+        /// <summary>The results list, built for the popup layer.</summary>
+        public static VisualElement Build(AppController app)
         {
-            host.Clear();
             var s = app.State;
-            if (string.IsNullOrWhiteSpace(s.Query)) return;
             var d = app.Session.Data;
             var r = GlobalSearch.Run(app.Session, s.Query, includePeople: s.Mode == Mode.Author);
             var box = new VisualElement().Cls("sugg wide");
-            box.style.maxHeight = 520;
+            box.style.position = Position.Relative; box.style.top = 0; box.style.left = 0; box.style.marginTop = 0;
             var sv = U.Scroll();
+            sv.style.maxHeight = 512;
             box.Add(sv);
-            host.Add(box);
 
             foreach (var m in r.Items)
             {
@@ -201,6 +203,7 @@ namespace MediaTrip.UI.Shell
                 sv.Add(b);
             }
             if (r.IsEmpty) sv.Add(U.Sub("No match.").Pad(14));
+            return box;
         }
     }
 }
