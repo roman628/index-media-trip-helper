@@ -7,8 +7,8 @@ using UnityEngine.UIElements;
 namespace MediaTrip.EditorTools
 {
     /// <summary>
-    /// Media Trip > Set Up Scene: creates the PanelSettings asset (runtime theme, scale with
-    /// screen size at the design's 1180x820), and puts a UIDocument + AppController on a
+    /// Media Trip > Set Up Scene: creates the PanelSettings asset (runtime theme, constant
+    /// pixel size; the app sets the points-per-pixel scale at run time), and puts a UIDocument + AppController on a
     /// "MediaTripApp" object in the open scene. Safe to run again.
     /// </summary>
     public static class MediaTripSceneSetup
@@ -34,10 +34,8 @@ namespace MediaTrip.EditorTools
                 AssetDatabase.CreateAsset(panel, PanelPath);
             }
             panel.themeStyleSheet = tss;
-            panel.scaleMode = PanelScaleMode.ScaleWithScreenSize;
-            panel.referenceResolution = new Vector2Int(1180, 820);
-            panel.screenMatchMode = PanelScreenMatchMode.MatchWidthOrHeight;
-            panel.match = 0.5f;
+            panel.scaleMode = PanelScaleMode.ConstantPixelSize;
+            panel.scale = 1f;
             EditorUtility.SetDirty(panel);
             AssetDatabase.SaveAssets();
 

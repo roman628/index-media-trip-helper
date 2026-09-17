@@ -65,8 +65,10 @@ namespace MediaTrip.UI.Tests
             Assert.IsTrue(cap.Photos.Any(p => p.PhotoId == "ph-006" && p.Captured));
             Assert.IsTrue(cap.Photos.Any(p => p.Text == "Placard"));
             CollectionAssert.AreEqual(new[] { "try step", "verification" }, cap.Keywords);
-            Assert.IsNotNull(cap.People[0].PersonId, "typed person was added to the registry");
-            Assert.AreEqual("Owen Pratt", s.Data.FindPerson(cap.People[0].PersonId).FullName);
+            Assert.AreEqual("Nina Okoro", cap.People[0].Name, "the planned SME is filled in from the pick");
+            var owen = cap.People.Single(p => p.Name == "Owen Pratt");
+            Assert.IsNotNull(owen.PersonId, "typed person was added to the registry");
+            Assert.AreEqual("Owen Pratt", s.Data.FindPerson(owen.PersonId).FullName);
             Assert.AreEqual(PlanItemStatus.Dropped, s.Plan.FindItem("v-005").Status, "a drop amendment still stands; the capture is recorded against it");
             if (d.Outline != null) Assert.IsTrue(s.Data.Captures.OutlineAssignments.Any(a => a.MediaRef.Id == cap.Id && a.Confirmed));
         }
@@ -210,7 +212,7 @@ namespace MediaTrip.UI.Tests
             Assert.AreEqual(2, v.InDocument(DocumentKind.ShotList).Count);
             Assert.AreEqual(1, v.InDocument(DocumentKind.Captures).Count);
             Assert.AreEqual(Screen.ShotList, ValidationSummary.FixScreen(v.For("v-002")[0], s.Data));
-            Assert.AreEqual(Screen.Amend, ValidationSummary.FixScreen(v.For("cap-001")[0], s.Data));
+            Assert.AreEqual(Screen.Summary, ValidationSummary.FixScreen(v.For("cap-001")[0], s.Data));
         }
     }
 

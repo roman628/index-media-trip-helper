@@ -1,7 +1,8 @@
 using System;
 using System.IO;
+using System.Linq;
 using MediaTrip.Persistence;
-using MediaTrip.UI.Author;
+using MediaTrip.Validation;
 using UnityEngine.UIElements;
 
 namespace MediaTrip.UI.Transfer
@@ -9,8 +10,8 @@ namespace MediaTrip.UI.Transfer
     /// <summary>
     /// The one Import gesture: pick a file (or choose from the app's Import folder where no
     /// picker exists), detect whether it is a whole trip or a single document, run the dry-run
-    /// validation, show the preview, and only then commit, all or nothing. Works with or
-    /// without an open trip (a single document needs one).
+    /// validation, show the result in a sheet, and only then commit, all or nothing. Works with
+    /// or without an open trip (a single document needs one).
     /// </summary>
     public static class ImportFlow
     {
@@ -36,17 +37,14 @@ namespace MediaTrip.UI.Transfer
                 {
                     if (app.Session == null)
                     {
-                        Fail(app, label + " is a single " + report.SingleDocumentKind + " document; open or create a trip first, then import it into that trip.");
+                        Fail(app, label + " is a single document. Open or create a trip first, then import it into that trip.");
                         return;
                     }
                     report = app.Transfer.ValidateDocumentAgainstOpenTrip(File.ReadAllText(path), report.SingleDocumentKind.Value, label);
                 }
                 io.Report = report;
                 io.SourceLabel = label;
-                io.Stage = "preview";
-                io.LastMessage = null;
-                if (app.Session != null) app.Nav(Screen.IO);
-                else app.ShowSheet(() => PreviewSheet(app));
+                app.ShowSheet(() => PreviewSheet(app));
             }
             catch (Exception ex) { Fail(app, "Could not read " + path + ": " + ex.Message); }
         }
@@ -63,43 +61,68 @@ namespace MediaTrip.UI.Transfer
                     var dest = app.Transfer.CommitWholeTrip(r);
                     var tripId = Path.GetFileName(dest);
                     var label = io.SourceLabel;
-                    io.Stage = "idle"; io.Report = null;
                     app.CloseSheet();
                     app.OpenTrip(tripId);
-                    app.State.IO.Stage = "done";
-                    app.State.IO.SourceLabel = label;
-                    app.Nav(Screen.IO);
-                    Ok(app, "Imported " + label + " · opened");
+                    app.Toast("Imported " + label);
                 }
                 else if (r.SingleDocumentKind != null)
                 {
                     if (app.Session == null) { Fail(app, "Open a trip first."); return; }
                     var json = io.PendingPath != null ? File.ReadAllText(io.PendingPath) : null;
-                    if (json == null) { Fail(app, "The source is gone; choose it again."); return; }
+                    if (json == null) { Fail(app, "The file is gone; choose it again."); return; }
                     TripPackage.ImportDocument(app.Session, json, r.SingleDocumentKind.Value, io.SourceLabel);
-                    app.State.Renumber.Snapshot(app.Session.Data);
-                    io.Stage = "done"; io.Report = null;
-                    Ok(app, "Imported " + io.SourceLabel);
+                    var label = io.SourceLabel;
+                    io.Report = null; io.PendingPath = null;
+                    app.CloseSheet();
+                    app.Toast("Imported " + label);
                 }
             }
-            catch (ImportBlockedException ex) { io.Report = ex.Report; Fail(app, ex.Message); }
+            catch (ImportBlockedException ex) { io.Report = ex.Report; app.ShowSheet(() => PreviewSheet(app)); app.Toast(ex.Message); }
             catch (Exception ex) { Fail(app, "Import failed and nothing was changed: " + ex.Message); }
         }
 
         public static void Discard(AppController app)
         {
             var io = app.State.IO;
-            io.Stage = "idle"; io.Report = null; io.PendingPath = null;
+            io.Report = null; io.PendingPath = null;
             if (app.HasSheet) app.CloseSheet(); else app.Render();
         }
 
+        /// <summary>The dry-run report: what the file is, what is wrong with it, what importing would change.</summary>
         private static VisualElement PreviewSheet(AppController app)
         {
-            var sheet = new VisualElement().Cls("sheet wide");
-            sheet.style.maxHeight = 720;
-            sheet.Add(U.Row(U.H2("Import").Cls("grow"), U.Btn("Cancel", () => Discard(app), "sm")).Mb(12));
-            sheet.Add(U.Scroll(ImportExportScreen.Preview(app)));
-            return app.Overlay(sheet, () => Discard(app));
+            var io = app.State.IO; var r = io.Report; var s = app.Session;
+            var errs = r.Errors.Count(); var warns = r.Warnings.Count();
+            string kind;
+            if (r.IsWholeTrip) kind = "Whole trip";
+            else if (r.SingleDocumentKind != null) kind = s != null ? TripTransfer.DocumentFileName(s.Data, r.SingleDocumentKind.Value, r.OutlineBookId) : r.SingleDocumentKind.Value.ToString();
+            else kind = "Not a trip file";
+
+            var body = U.Scroll();
+            body.Add(U.H3(U.Esc(io.SourceLabel)).Mb(4));
+            body.Add(U.Sub(kind + " · " + U.Plural(r.Books, "book") + " · " + U.Plural(r.Videos, "video") + " · " + U.Plural(r.Photos, "photo") + " · " + U.Plural(r.Captures, "capture")).Mb(12));
+
+            string change;
+            if (r.IsWholeTrip) change = r.ExistingTripConflict ? "Replaces the trip with the same id on this device." : "Adds a new trip and opens it.";
+            else if (r.SingleDocumentKind != null) change = "Replaces " + kind + " in the open trip. Everything else is kept.";
+            else change = "Nothing can be imported from this file.";
+            body.Add(U.Body(change).Mb(12));
+
+            if (r.Issues.Count > 0) body.Add(U.Eyebrow(U.Plural(errs, "error") + " · " + U.Plural(warns, "warning")).Mb(4));
+            foreach (var i in r.Issues.OrderByDescending(x => x.Severity).Take(40))
+            {
+                var row = new VisualElement().Cls("issue");
+                row.Add(new VisualElement().Cls("dot" + (i.Severity == IssueSeverity.Warning ? " warn" : "")));
+                row.Add(U.Text(U.Esc((i.File != null ? i.File + ": " : "") + i.Message), "body-sm grow"));
+                body.Add(row);
+            }
+            if (r.Issues.Count > 40) body.Add(U.Sub("… and " + (r.Issues.Count - 40) + " more"));
+
+            var import = U.Btn(r.CanImport ? "Import" : "Cannot import", () => Commit(app), "big pri");
+            import.SetEnabled(r.CanImport);
+            var foot = U.Row(U.Grow(), import).Mt(12);
+            foot.style.flexShrink = 0;
+            return app.Sheet(720, () => Discard(app), app.SheetHead("Import", () => Discard(app)), body, foot);
         }
 
         private static void FolderList(AppController app)
@@ -107,35 +130,22 @@ namespace MediaTrip.UI.Transfer
             var files = app.Transfer.FilesInImportFolder();
             app.ShowSheet(() =>
             {
-                var sheet = new VisualElement().Cls("sheet");
-                sheet.Add(U.Row(U.Col(U.H2("Files in the app's folder"), U.Sub(TripTransfer.ImportDir)).Cls("grow"), U.Btn("Close", app.CloseSheet, "sm")).Mb(12));
                 var list = U.Scroll();
-                if (files.Count == 0) list.Add(U.Sub("No .zip or .json files found. Put the file in the Import folder above (on the iPad: the Files app, under this app) and try again."));
+                if (files.Count == 0) list.Add(U.Sub("No .zip or .json files found. Put the file in this folder (on the iPad: the Files app, under this app) and try again.\n" + TripTransfer.ImportDir));
                 foreach (var f in files)
                 {
                     var path = f;
                     list.Add(U.Tap(() => { app.CloseSheet(); Stage(app, path); }, "item outlined mb8",
-                        U.Col(U.Text(Path.GetFileName(f), "bold"), U.Sub(File.GetLastWriteTime(f).ToString("ddd MMM d, HH:mm") + " · " + (new FileInfo(f).Length / 1024) + " KB")).Cls("grow")));
+                        U.Col(U.Text(U.Esc(Path.GetFileName(f)), "bold"), U.Sub(File.GetLastWriteTime(f).ToString("ddd MMM d, HH:mm") + " · " + (new FileInfo(f).Length / 1024) + " KB")).Cls("grow")));
                 }
-                sheet.Add(list);
-                return app.Overlay(sheet, app.CloseSheet);
+                return app.Sheet(640, app.CloseSheet, app.SheetHead("Choose a file", app.CloseSheet), list);
             });
         }
 
+        /// <summary>Failures stay on screen until dismissed; a toast would be gone before it was read.</summary>
         public static void Fail(AppController app, string message)
         {
-            app.State.IO.LastMessage = message;
-            app.State.IO.LastMessageIsError = true;
-            app.Toast(message);
-            app.Render();
-        }
-
-        public static void Ok(AppController app, string message)
-        {
-            app.State.IO.LastMessage = message;
-            app.State.IO.LastMessageIsError = false;
-            app.Toast(message);
-            app.Render();
+            app.ShowSheet(() => app.Sheet(560, app.CloseSheet, app.SheetHead("Import", app.CloseSheet), U.Scroll(U.Body(U.Esc(message)))));
         }
     }
 }

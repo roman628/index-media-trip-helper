@@ -2,23 +2,42 @@
 
 An iPad app that replaces the clipboard on media trips. The crew captures video and photos
 against a printed shot list; the app holds that plan, records what was actually shot, tracks
-the changes made in the field, and keeps the book outlines and hero-shot checklist in one place.
+the changes made in the field, and keeps the book outlines and the cover and hero assignments in one place.
 Everything is JSON on disk, fully offline. No accounts, no network, no cloud services.
 
 ## What it does
 
-- **Field mode** (default): today's captures in order, what is left, hero shots per book, the
-  plan browser, a capture entry form, and outline coverage. Checking an item off writes a
-  capture; combining, renaming or dropping a planned video records an amendment. The plan
-  itself is never edited in the field.
-- **Authoring mode**: trip setup, people registry, shot-list editor, outline editor,
-  amendment review, import/export, and a JSON inspector with validation.
-- **Transfer**: a trip is authored on a computer and moved to the iPad. One Share button
-  writes a zip (or a single-file JSON bundle where zipping is unavailable) and hands it to the
-  platform: the iOS share sheet, a save dialog in the Editor, or the app's Export folder in a
-  standalone build. One Import button accepts a whole trip or a single document and detects
-  which. The app's own folder is also visible in the iOS Files app. Every import is validated
-  first and applied all at once or not at all. A fresh install starts with an empty library.
+The app opens on the **trip library** (New trip, Import). A trip is five documents, on a rail
+in landscape and a bottom bar in portrait and on a phone. Each has a read state; Trip, Shot
+list and Outlines also have an Edit toggle in the header. Search and a menu (Share, Import,
+Theme) sit beside it, with a one-tap sun button for the high-contrast scheme.
+
+- **Trip**: one scrolling document (identity, dates and days, location, weather, media file,
+  logistics, actions, books and teams, people) with a section index that follows the scroll.
+- **Shot list**: Working (the plan as it now stands), Original (the printed list) and Changes
+  (the amendment log), plus "Hide done". A video's detail has Film as its primary action, with
+  Rename, Combine and Drop beneath it. Those record amendments; the plan itself is only
+  edited in the Edit state, and never for something already filmed or changed.
+- **Outlines**: book chips, chapter list, section view. The outline text sits beside "My
+  notes" and "Placed here", where a suggested placement is kept with one tap.
+- **Covers**: every book's cover and chapter heroes on one board. Each slot shows what was
+  planned and what is assigned: the planned photo once shot, another photo from the master
+  list, or a new one described on the spot. A slot is assigned to, never ticked.
+- **Summary**: what was shot, by day, in order. Video and Photos append at the bottom; rows
+  are dragged by their handle to reorder (a tap on the handle offers Move up / Move down).
+- **Filming**: the entry form with the matching line of the plan above each field, a Plan
+  button that opens the whole plan beside the form, and shot-list suggestions while typing
+  the title. Saving writes a capture (and an "add" amendment for something unplanned).
+- **Transfer**: Share writes a zip (or a single-file JSON bundle where zipping is unavailable)
+  and hands it to the platform: the iOS share sheet, a save dialog in the Editor, or the
+  app's Export folder in a standalone build. Import accepts a whole trip or a single document
+  and detects which. Every import is validated first and applied all at once or not at all.
+  A fresh install starts with an empty library.
+
+Layouts are built in points for three kinds of screen (phone, portrait tablet, landscape
+tablet) chosen at run time from the panel size; every screen works in all of them. A
+read-only JSON inspector with validation is kept for debugging: five quick taps on the
+library's "Trips" title, or Ctrl/Cmd+Shift+J.
 
 ## Opening the project
 
@@ -52,7 +71,7 @@ temp folders; nothing is written into the project.
 | `Assets/Scripts/Session` | `TripSession`: the open trip, dirty tracking, autosave, typed mutations. |
 | `Assets/Scripts/Validation` | Referential-integrity checks. |
 | `Assets/Scripts/Tests` | EditMode tests for the data layer. |
-| `Assets/UI` | UI Toolkit app: UXML, USS, themes, screens, transfer routes, view models and their tests. |
+| `Assets/UI` | UI Toolkit app: UXML, USS, themes, the shell and the document screens, transfer routes, view models and their tests. |
 | `Assets/Editor` | Scene setup menu and the iOS post-build step. |
 | `Assets/Plugins/iOS` | The Objective-C Files picker plugin, compiled by Xcode. |
 | `Assets/StreamingAssets/SampleTrip` | A complete fake trip used for development and tests. |
@@ -72,7 +91,9 @@ session.Queries.Remaining();                         // views over the resolved 
 session.Queries.Heroes();
 session.Queries.DaySummary(dayId);
 session.Search.SearchShotList("entry perm");         // fuzzy search
-session.CheckOff(planItemId, dayId);                 // field mutations write captures
+session.AddCapture(capture);                         // filming writes captures
+session.ReorderDay(dayId, orderedIds);               // the summary's order
+session.AssignHero(bookId, chapterId, photoId, null); // cover and hero slots are assigned
 session.Combine(new[] { "v-001", "v-002" }, "Both"); // plan changes are amendments
 session.PlanEditor.AddVideo(chapterId, "Title");     // authoring edits the plan itself
 session.Changed += Refresh;                          // rebuild the view after any change

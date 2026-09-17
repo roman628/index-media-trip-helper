@@ -1,112 +1,138 @@
-using System.Collections.Generic;
 using MediaTrip.Persistence;
 using MediaTrip.UI.ViewModels;
 
 namespace MediaTrip.UI
 {
-    public enum Mode { Field, Author }
-
-    public enum Screen
-    {
-        // field
-        Today, Plan, Heroes, Capture, Coverage,
-        // author
-        Trip, People, ShotList, Outline, Amend, IO, Json,
-    }
+    /// <summary>The trip library, the five documents, the filming screen, and the hidden JSON inspector.</summary>
+    public enum Screen { Library, Trip, ShotList, Outlines, Covers, Summary, Film, Json }
 
     public static class Screens
     {
-        public static readonly Screen[] FieldTabs = { Screen.Today, Screen.Plan, Screen.Heroes, Screen.Coverage };
-        public static readonly Screen[] AuthorTabs = { Screen.Trip, Screen.People, Screen.ShotList, Screen.Outline, Screen.Amend, Screen.IO, Screen.Json };
-
-        public static bool IsField(Screen s) => s == Screen.Today || s == Screen.Plan || s == Screen.Heroes || s == Screen.Capture || s == Screen.Coverage;
+        /// <summary>The five documents, in rail / bottom-bar order.</summary>
+        public static readonly Screen[] Tabs = { Screen.Trip, Screen.ShotList, Screen.Outlines, Screen.Covers, Screen.Summary };
 
         public static string Label(Screen s)
         {
             switch (s)
             {
-                case Screen.Today: return "Today";
-                case Screen.Plan: return "Plan";
-                case Screen.Heroes: return "Heroes";
-                case Screen.Coverage: return "Coverage";
-                case Screen.Capture: return "Log capture";
+                case Screen.Library: return "Trips";
                 case Screen.Trip: return "Trip";
-                case Screen.People: return "People";
                 case Screen.ShotList: return "Shot list";
-                case Screen.Outline: return "Outlines";
-                case Screen.Amend: return "Amendments";
-                case Screen.IO: return "Import / export";
+                case Screen.Outlines: return "Outlines";
+                case Screen.Covers: return "Covers";
+                case Screen.Summary: return "Summary";
+                case Screen.Film: return "Filming";
                 case Screen.Json: return "JSON";
                 default: return s.ToString();
             }
         }
+
+        public static GlyphKind Glyph(Screen s)
+        {
+            switch (s)
+            {
+                case Screen.Trip: return GlyphKind.Target;
+                case Screen.ShotList: return GlyphKind.List;
+                case Screen.Outlines: return GlyphKind.Lines;
+                case Screen.Covers: return GlyphKind.Star;
+                case Screen.Summary: return GlyphKind.Square;
+                default: return GlyphKind.None;
+            }
+        }
+
+        /// <summary>Documents with an edit state. Covers and Summary are always live.</summary>
+        public static bool HasEdit(Screen s) => s == Screen.Trip || s == Screen.ShotList || s == Screen.Outlines || s == Screen.Library;
     }
 
     /// <summary>Everything about what is on screen that is not trip data.</summary>
     public sealed class AppState
     {
-        public Mode Mode = Mode.Field;
-        public Screen Screen = Screen.Today;
-        public string Query = "";
-        public bool Help;
+        public Screen Screen = Screen.Library;
+        /// <summary>The header's Edit toggle. Cleared whenever the screen changes.</summary>
+        public bool Edit;
+        public bool Menu;
+        /// <summary>Search text; null when the search sheet is closed.</summary>
+        public string Search;
         /// <summary>Name of the TextField to refocus after a re-render (null = none).</summary>
         public string Focus;
 
-        // ---- field
-        public string DayId;
-        public bool RemainingOnly;
-        public HashSet<string> OpenBooks = new HashSet<string>();
-        /// <summary>Plan item shown in the detail sheet on Today (null = closed).</summary>
-        public string DetailItemId;
-        public string PlanBook;
-        public string PlanVideo;
-        public string CovBook;
-        public bool CovEmptyOnly;
-        public CaptureDraft Capture;
-        public AmendDraft Amend;
-
-        // ---- author
-        public string TripSection = "identity";
-        public string PeopleSel;
-        public string PeopleQ = "";
+        public TripState Trip = new TripState();
         public ShotListState SL = new ShotListState();
         public OutlineState OL = new OutlineState();
-        public string AmendEdit;
+        public CoversState CV = new CoversState();
+        public SummaryState SM = new SummaryState();
+        public FilmState Film = new FilmState();
+        public PasteState Paste;
         public IoState IO = new IoState();
         public JsonState JS = new JsonState();
-        public RenumberTracker Renumber = new RenumberTracker();
+
+        public sealed class TripState
+        {
+            public string Section = "identity";
+            /// <summary>Section to scroll to after the next render.</summary>
+            public string ScrollTo;
+        }
 
         public sealed class ShotListState
         {
-            public string Pane = "videos";        // videos | photos
-            public string SelKind = "video";      // video | chapter | photo | none
-            public string SelId;
-            public string Book;
-            public string NoteSel;
-            /// <summary>Paste sheet text; null when the sheet is closed.</summary>
-            public string Paste;
+            public ShotListMode View = ShotListMode.Working;
+            public bool HideDone;
+            /// <summary>Plan item whose detail is open (side panel in landscape, sheet otherwise).</summary>
+            public string VideoId;
+            /// <summary>Master-list photo being edited (edit state only).</summary>
+            public string PhotoId;
+            public AmendDraft Amend;
             public string SmeQ = "";
-            public HashSet<string> Collapsed = new HashSet<string>();
         }
 
         public sealed class OutlineState
         {
             public string Book;
-            public string Chapter;
-            /// <summary>"sec:<id>" | "node:<id>" | null.</summary>
-            public string Sel;
-            public string Paste;
+            public string Section;
+            /// <summary>Portrait and phone show either the chapter list or one section.</summary>
+            public bool ListOpen = true;
+            public bool Place;
+        }
+
+        public sealed class CoversState
+        {
+            public string SlotBook;
+            /// <summary>"cover" or a chapter id; null when no slot sheet is open.</summary>
+            public string SlotKey;
+            public string NewText = "";
+            public bool Picking;
+        }
+
+        public sealed class SummaryState
+        {
+            public string Day;
+            public string OpenCapture;
+            public string OpenPhoto;
+            public PhotoBatchDraft Batch;
+        }
+
+        public sealed class FilmState
+        {
+            public CaptureDraft Draft;
+            public string DayId;
+            public bool PlanOpen;
+            public Screen Return = Screen.Summary;
+        }
+
+        public sealed class PasteState
+        {
+            /// <summary>"video" or "section".</summary>
+            public string Kind;
+            public string BookId;
+            public string Id;
+            public string Text = "";
         }
 
         public sealed class IoState
         {
-            /// <summary>idle | preview | done</summary>
-            public string Stage = "idle";
             public ImportReport Report;
             public string SourceLabel;
             public string PendingPath;
-            public string LastMessage;
-            public bool LastMessageIsError;
         }
 
         public sealed class JsonState

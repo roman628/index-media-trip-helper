@@ -34,6 +34,9 @@ namespace MediaTrip.UI.ViewModels
         public string Notes = "";
         /// <summary>photoId -> captured, for the picked item's photoRefs.</summary>
         public Dictionary<string, bool> Photos = new Dictionary<string, bool>();
+        /// <summary>Unplanned photos taken with this setup, as typed.</summary>
+        public List<string> ExtraPhotos = new List<string>();
+        /// <summary>Text still in the "unplanned photo" field; it counts on save.</summary>
         public string ExtraPhoto = "";
         public bool More;
         public OutlineSuggestion Outline;
@@ -68,7 +71,7 @@ namespace MediaTrip.UI.ViewModels
             foreach (var cp in c.Photos ?? new List<CapturePhoto>())
             {
                 if (cp.PhotoId != null) d.Photos[cp.PhotoId] = cp.Captured;
-                else if (!string.IsNullOrEmpty(cp.Text)) d.ExtraPhoto = cp.Text;
+                else if (!string.IsNullOrEmpty(cp.Text)) d.ExtraPhotos.Add(cp.Text);
             }
             var existing = s.Data.Captures.OutlineAssignments.FirstOrDefault(a => a.MediaRef?.Kind == MediaRefKind.Capture && a.MediaRef.Id == c.Id);
             if (existing != null)
@@ -85,7 +88,9 @@ namespace MediaTrip.UI.ViewModels
         public void SetTitle(string title)
         {
             Title = title ?? "";
-            ItemId = null; BookId = null; ChapterId = null;
+            // Book and chapter came from the pick; for an unplanned title they are chosen by hand and stay.
+            if (ItemId != null) { BookId = null; ChapterId = null; }
+            ItemId = null;
             Photos.Clear();
             Outline = null;
             OutlineConfirmed = false;
@@ -104,6 +109,9 @@ namespace MediaTrip.UI.ViewModels
             ChapterId = eff.ChapterId;
             Photos.Clear();
             foreach (var pid in eff.PhotoRefs ?? new List<string>()) Photos[pid] = false;
+            if (People.Count == 0)
+                foreach (var p in (eff.SmeIds ?? new List<string>()).Select(s.Data.FindPerson).Where(p => p != null))
+                    People.Add(new CapturePerson { PersonId = p.Id, Name = p.FullName, Title = p.Title ?? "" });
             var suggestions = s.Search.SuggestOutlineFor(eff, 1);
             Outline = suggestions.Count > 0 ? suggestions[0] : null;
             OutlineConfirmed = false;
@@ -112,6 +120,18 @@ namespace MediaTrip.UI.ViewModels
 
         public List<ScoredMatch<PlanItem>> Suggestions(TripSession s, int max = 6) =>
             string.IsNullOrWhiteSpace(Title) ? new List<ScoredMatch<PlanItem>>() : s.Search.SearchShotList(Title, max);
+
+        /// <summary>Suggestions for the filming screen: only what has not been filmed yet.</summary>
+        public List<ScoredMatch<PlanItem>> OpenSuggestions(TripSession s, int max = 5) =>
+            string.IsNullOrWhiteSpace(Title) ? new List<ScoredMatch<PlanItem>>()
+                : s.Search.SearchShotList(Title, max + 6).Where(m => !m.Item.VideoCaptured).Take(max).ToList();
+
+        public void AddExtraPhoto()
+        {
+            if (string.IsNullOrWhiteSpace(ExtraPhoto)) return;
+            ExtraPhotos.Add(ExtraPhoto.Trim());
+            ExtraPhoto = "";
+        }
 
         public void AddPerson(string name, string title, string personId = null)
         {
@@ -138,7 +158,8 @@ namespace MediaTrip.UI.ViewModels
             }
 
             var photos = Photos.Select(kv => new CapturePhoto { PhotoId = kv.Key, Text = null, Captured = kv.Value }).ToList();
-            if (!string.IsNullOrWhiteSpace(ExtraPhoto)) photos.Add(new CapturePhoto { PhotoId = null, Text = ExtraPhoto.Trim(), Captured = true });
+            AddExtraPhoto();
+            foreach (var t in ExtraPhotos) photos.Add(new CapturePhoto { PhotoId = null, Text = t, Captured = true });
 
             foreach (var p in People)
             {

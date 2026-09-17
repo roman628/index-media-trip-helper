@@ -5,8 +5,8 @@ namespace MediaTrip.UI
 {
     /// <summary>
     /// Keyboard accelerators. Every one of these is a second way to reach an action that also
-    /// has a tap target; nothing here is keyboard-only. Cmd on the iPad and Ctrl on the laptop
-    /// are treated the same.
+    /// has a tap target; nothing here is keyboard-only except moving a bullet up or down.
+    /// Cmd on the iPad and Ctrl on the laptop are treated the same.
     /// </summary>
     public static class Shortcuts
     {
@@ -61,63 +61,43 @@ namespace MediaTrip.UI
 
         private static void OnKey(AppController app, KeyDownEvent e)
         {
-            if (app.Session == null)
+            if (e.keyCode == KeyCode.Escape)
             {
-                if (e.keyCode == KeyCode.Escape && app.HasSheet) { app.CloseSheet(); Consume(e); }
+                if (app.CloseTop()) { Consume(e); return; }
+                var focused = FocusedField(app.Root);
+                if (focused != null) { focused.Blur(); app.State.Focus = null; Consume(e); }
                 return;
             }
+            if (app.Session == null) return;
             var meta = IsMeta(e);
-            var state = app.State;
             var tf = FocusedField(app.Root);
-            var fieldName = tf?.name ?? "";
-            var inNode = fieldName.StartsWith("node:");
+            var inNode = (tf?.name ?? "").StartsWith("node:");
 
-            // ---- everywhere
-            if (meta && e.keyCode == KeyCode.Slash) { state.Help = !state.Help; app.Render(); Consume(e); return; }
-            if (meta && e.keyCode == KeyCode.F) { state.Focus = "q"; app.Render(); Consume(e); return; }
-            if (meta && e.keyCode == KeyCode.S) { app.Session.SaveNow(); app.Toast("Saved · autosave is on anyway"); Consume(e); return; }
-            if (meta && state.Mode == Mode.Author && e.keyCode >= KeyCode.Alpha1 && e.keyCode <= KeyCode.Alpha7)
+            if (meta && e.keyCode == KeyCode.F) { app.State.Search = app.State.Search ?? ""; app.RenderKeepFocus("search"); Consume(e); return; }
+            if (meta && e.keyCode == KeyCode.S) { app.Session.SaveNow(); app.Toast("Saved"); Consume(e); return; }
+            if (meta && e.shiftKey && e.keyCode == KeyCode.J) { app.OpenDebug(); Consume(e); return; }
+            if (meta && e.keyCode == KeyCode.E && Screens.HasEdit(app.State.Screen)) { app.ToggleEdit(); Consume(e); return; }
+            if (meta && !e.shiftKey && e.keyCode >= KeyCode.Alpha1 && e.keyCode <= KeyCode.Alpha5)
             {
-                int idx = e.keyCode - KeyCode.Alpha1;
-                app.Nav(Screens.AuthorTabs[idx]);
+                app.Nav(Screens.Tabs[e.keyCode - KeyCode.Alpha1]);
                 Consume(e);
                 return;
             }
-            if (e.keyCode == KeyCode.Escape)
-            {
-                if (state.Help) { state.Help = false; app.Render(); Consume(e); return; }
-                if (app.HasSheet) { app.CloseSheet(); Consume(e); return; }
-                if (state.Amend != null) { state.Amend = null; app.Render(); Consume(e); return; }
-                if (state.DetailItemId != null) { state.DetailItemId = null; app.Render(); Consume(e); return; }
-                if (state.SL.Paste != null) { state.SL.Paste = null; app.Render(); Consume(e); return; }
-                if (state.OL.Paste != null) { state.OL.Paste = null; app.Render(); Consume(e); return; }
-                if (app.HasPopup) { app.ClosePopup(); Consume(e); return; }
-                if (state.AmendEdit != null) { state.AmendEdit = null; app.Render(); Consume(e); return; }
-                if (tf != null) { tf.Blur(); state.Focus = null; Consume(e); return; }
-                if (!string.IsNullOrEmpty(state.Query)) { state.Query = ""; app.Render(); Consume(e); return; }
-                return;
-            }
 
-            // ---- outliner and list accelerators (the accessory bar's keyboard twins)
-            if (app.AccessoryAction != null)
+            // ---- the outliner's structural keys
+            if (app.AccessoryAction != null && inNode)
             {
                 string act = null;
-                bool inTextOfOutliner = inNode;
-                bool listContext = tf == null || inNode || fieldName.StartsWith("video:") || fieldName.StartsWith("chapter:") || fieldName.StartsWith("photo:") || fieldName.StartsWith("os:") || fieldName.StartsWith("oc:");
-                if (!listContext) return;
                 if (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter) act = e.shiftKey ? "child" : "sib";
-                else if (e.keyCode == KeyCode.Tab && inTextOfOutliner) act = e.shiftKey ? "out" : "in";
+                else if (e.keyCode == KeyCode.Tab) act = e.shiftKey ? "out" : "in";
                 else if (e.altKey && e.keyCode == KeyCode.UpArrow) act = "up";
                 else if (e.altKey && e.keyCode == KeyCode.DownArrow) act = "down";
-                else if (meta && e.keyCode == KeyCode.D) act = "dup";
                 else if (meta && e.keyCode == KeyCode.Backspace) act = "del";
-                else if (e.keyCode == KeyCode.Backspace && inTextOfOutliner && string.IsNullOrEmpty(tf.value)) act = "del";
-                else if (meta && e.shiftKey && e.keyCode == KeyCode.V) act = "paste";
-                else if ((e.keyCode == KeyCode.UpArrow || e.keyCode == KeyCode.DownArrow) && !e.altKey && (inNode || tf == null)) act = e.keyCode == KeyCode.UpArrow ? "prev" : "next";
+                else if (e.keyCode == KeyCode.Backspace && string.IsNullOrEmpty(tf.value)) act = "del";
+                else if (e.keyCode == KeyCode.UpArrow && !e.altKey) act = "prev";
+                else if (e.keyCode == KeyCode.DownArrow && !e.altKey) act = "next";
                 if (act != null && app.AccessoryAction(act)) { Consume(e); return; }
             }
-
-            if (app.ScreenKeys != null && tf == null && app.ScreenKeys(e)) { Consume(e); }
         }
     }
 }

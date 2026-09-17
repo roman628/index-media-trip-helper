@@ -3,9 +3,9 @@
          everything below uses the theme variables from Resources/Styles/App.uss. Screens are built in C#.
          #overlay-host is the one top-level layer for every popup, suggestion list, sheet and dialog:
          #popup-layer holds anchored popups, #modal-layer holds sheets, #toast-host sits above both.
-         Layout classes (.portrait / .landscape, .compact / .regular / .wide) are toggled on #app on resize. -->
+         Layout classes (.portrait / .landscape, .compact / .regular / .wide, .k-phone / .k-port / .k-land, .xwide)
+         are toggled on #app on resize; the panel is laid out in points. -->
     <ui:VisualElement name="app" class="theme col" style="width: 100%; height: 100%;">
-        <ui:VisualElement name="top-host" class="col" style="flex-shrink: 0;" />
         <ui:VisualElement name="body-host" class="row stretch grow" style="min-height: 0; position: relative;" />
         <ui:VisualElement name="overlay-host" picking-mode="Ignore" style="position: absolute; left: 0; top: 0; right: 0; bottom: 0;">
             <ui:VisualElement name="popup-layer" picking-mode="Ignore" style="position: absolute; left: 0; top: 0; right: 0; bottom: 0;" />

@@ -7,8 +7,7 @@ using MediaTrip.Validation;
 namespace MediaTrip.UI.ViewModels
 {
     /// <summary>
-    /// Validation issues shaped for the UI: the top-bar badge, per-entity counts for tree
-    /// badges, which authoring tab fixes an issue, and which document to highlight in the
+    /// Validation issues shaped for the UI: counts, which document fixes an issue, and which document to highlight in the
     /// JSON inspector.
     /// </summary>
     public sealed class ValidationSummary
@@ -58,21 +57,21 @@ namespace MediaTrip.UI.ViewModels
             if (i.EntityId != null)
             {
                 if (data.FindVideo(i.EntityId) != null || data.FindPhoto(i.EntityId) != null || data.FindChapter(i.EntityId) != null) return Screen.ShotList;
-                if (data.FindPerson(i.EntityId) != null) return Screen.People;
-                if (data.FindCapture(i.EntityId) != null || data.FindAmendment(i.EntityId) != null || data.FindPhotoCapture(i.EntityId) != null) return Screen.Amend;
+                if (data.FindPerson(i.EntityId) != null) return Screen.Trip;
+                if (data.FindCapture(i.EntityId) != null || data.FindAmendment(i.EntityId) != null || data.FindPhotoCapture(i.EntityId) != null) return Screen.Summary;
                 if (data.FindBook(i.EntityId) != null || data.FindDay(i.EntityId) != null) return Screen.Trip;
-                if (data.Outlines.ContainsKey(i.EntityId)) return Screen.Outline;
+                if (data.Outlines.ContainsKey(i.EntityId)) return Screen.Outlines;
             }
             switch (i.Document)
             {
                 case DocumentKind.ShotList: return Screen.ShotList;
                 case DocumentKind.Trip: return Screen.Trip;
-                case DocumentKind.Captures: return Screen.Amend;
-                case DocumentKind.Outline: return Screen.Outline;
+                case DocumentKind.Captures: return Screen.Summary;
+                case DocumentKind.Outline: return Screen.Outlines;
                 default: return Screen.Json;
             }
         }
 
-        public static string FixLabel(Screen s) => s == Screen.ShotList ? "Shot list" : s == Screen.People ? "People" : s == Screen.Amend ? "Amendments" : s == Screen.Outline ? "Outline" : s == Screen.Trip ? "Trip" : "JSON";
+        public static string FixLabel(Screen s) => Screens.Label(s);
     }
 }
