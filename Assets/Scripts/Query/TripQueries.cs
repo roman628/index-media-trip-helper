@@ -42,6 +42,52 @@ namespace MediaTrip.Query
         public List<PhotoCapture> PhotosUnder = new List<PhotoCapture>();
     }
 
+    /// <summary>One row of a day's flat timeline: a video capture or a stand-alone photo capture.</summary>
+    public class TimelineEntry
+    {
+        public Capture Capture;
+        public PhotoCapture PhotoCapture;
+        /// <summary>The plan item a video capture references; null otherwise.</summary>
+        public PlanItem Item;
+        public bool IsVideo => Capture != null;
+        public string Id => Capture != null ? Capture.Id : PhotoCapture?.Id;
+        public int Order => Capture != null ? Capture.CapturedOrder : PhotoCapture?.CapturedOrder ?? 0;
+        public string At => Capture != null ? Capture.At : PhotoCapture?.At;
+    }
+
+    /// <summary>One thing filling a hero slot.</summary>
+    public class SlotAssignment
+    {
+        /// <summary>The planned hero itself, once captured (no assignment record exists for it).</summary>
+        public bool IsPlanned;
+        /// <summary>Null for the captured planned hero.</summary>
+        public HeroAssignment Assignment;
+        /// <summary>Master-list photo; null for a new photo described in the field.</summary>
+        public PhotoItem Photo;
+        public string Text;
+        public bool IsNew => Photo == null;
+    }
+
+    /// <summary>A book cover (Chapter null) or a chapter hero: what was planned and what fills it.</summary>
+    public class CoverSlot
+    {
+        public Book Book;
+        public Chapter Chapter;
+        /// <summary>The planned hero photo for the slot; null when the plan has none.</summary>
+        public PhotoItem Planned;
+        public List<SlotAssignment> Assigned = new List<SlotAssignment>();
+        public bool IsCover => Chapter == null;
+        public bool IsEmpty => Assigned.Count == 0;
+        /// <summary>"cover" or the chapter id; with the book id it names the slot.</summary>
+        public string Key => Chapter == null ? "cover" : Chapter.Id;
+    }
+
+    public class CoverBook
+    {
+        public Book Book;
+        public List<CoverSlot> Slots = new List<CoverSlot>();
+    }
+
     /// <summary>A day of the trip as the Media Trip Summary lays it out.</summary>
     public class DaySummary
     {
@@ -348,6 +394,71 @@ namespace MediaTrip.Query
                 else target.PhotosUnder.Add(pc);
             }
             return summary;
+        }
+
+        /// <summary>
+        /// A day as one flat list in capture order, videos and stand-alone photo captures
+        /// mixed. Ties keep videos first, then file order.
+        /// </summary>
+        public List<TimelineEntry> DayTimeline(string dayId)
+        {
+            var list = new List<(TimelineEntry e, int kind, int index)>();
+            for (int i = 0; i < Data.Captures.Captures.Count; i++)
+            {
+                var c = Data.Captures.Captures[i];
+                if (c.DayId == dayId) list.Add((new TimelineEntry { Capture = c, Item = Plan.FindItem(c.PlanVideoId) }, 0, i));
+            }
+            for (int i = 0; i < Data.Captures.PhotoCaptures.Count; i++)
+            {
+                var p = Data.Captures.PhotoCaptures[i];
+                if (p.DayId == dayId) list.Add((new TimelineEntry { PhotoCapture = p }, 1, i));
+            }
+            return list.OrderBy(t => t.e.Order).ThenBy(t => t.kind).ThenBy(t => t.index).Select(t => t.e).ToList();
+        }
+
+        /// <summary>
+        /// Every hero slot of every book: the cover, then one per chapter. A slot is filled by
+        /// the planned hero once that photo is captured, and by any hero assignments made in
+        /// the field (a master-list photo, or a new one). Planned and assigned stay separate.
+        /// </summary>
+        public List<CoverBook> CoverBoard()
+        {
+            var board = new List<CoverBook>();
+            foreach (var book in Data.Trip.Books.OrderBy(b => b.Number))
+            {
+                var cb = new CoverBook { Book = book };
+                cb.Slots.Add(Slot(book, null));
+                foreach (var ch in Data.ChaptersOf(book.Id).OrderBy(c => c.Number)) cb.Slots.Add(Slot(book, ch));
+                board.Add(cb);
+            }
+            return board;
+        }
+
+        public CoverSlot CoverSlot(string bookId, string chapterId)
+        {
+            var book = Data.FindBook(bookId);
+            if (book == null) return null;
+            var ch = chapterId == null ? null : Data.FindChapter(chapterId);
+            if (chapterId != null && ch == null) return null;
+            return Slot(book, ch);
+        }
+
+        private CoverSlot Slot(Book book, Chapter chapter)
+        {
+            var slot = new CoverSlot { Book = book, Chapter = chapter };
+            slot.Planned = chapter == null
+                ? Plan.Photos.FirstOrDefault(p => p.HeroType == HeroType.BookCover && p.Photo.BelongsToBook(book.Id))
+                : ChapterHero(chapter.Id);
+            if (slot.Planned != null && slot.Planned.Status == PhotoStatus.Captured)
+                slot.Assigned.Add(new SlotAssignment { IsPlanned = true, Photo = slot.Planned, Text = slot.Planned.Description });
+            foreach (var h in Data.Captures.HeroAssignments)
+            {
+                if (h.BookId != book.Id || h.ChapterId != chapter?.Id) continue;
+                var photo = h.PhotoId != null ? Plan.FindPhoto(h.PhotoId) : null;
+                if (photo != null && slot.Planned != null && photo.Id == slot.Planned.Id && slot.Assigned.Any(a => a.IsPlanned)) continue;
+                slot.Assigned.Add(new SlotAssignment { Assignment = h, Photo = photo, Text = photo != null ? photo.Description : (h.Text ?? h.PhotoId) });
+            }
+            return slot;
         }
 
         /// <summary>Every trip day in date order, plus a trailing pseudo-day for captures on unknown day IDs.</summary>

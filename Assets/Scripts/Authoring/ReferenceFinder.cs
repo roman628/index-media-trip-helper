@@ -8,7 +8,7 @@ namespace MediaTrip.Authoring
     /// <summary>Something outside the plan that points at an entity ID.</summary>
     public class PlanReference
     {
-        /// <summary>"capture", "photoCapture", "amendment", "outlineAssignment", "video", "bookTeam".</summary>
+        /// <summary>"capture", "photoCapture", "amendment", "outlineAssignment", "heroAssignment", "video", "bookTeam".</summary>
         public string Kind;
         /// <summary>ID of the referencing entity.</summary>
         public string Id;
@@ -83,6 +83,13 @@ namespace MediaTrip.Authoring
                 if (a.ChapterId == id) Add("outlineAssignment", a.Id, "chapterId", null);
                 if (a.SectionId == id) Add("outlineAssignment", a.Id, "sectionId", null);
                 if (a.NodeId == id) Add("outlineAssignment", a.Id, "nodeId", null);
+            }
+            foreach (var h in d.Captures.HeroAssignments)
+            {
+                if (h.PhotoId == id) Add("heroAssignment", h.Id, "photoId", h.Text);
+                if (h.BookId == id) Add("heroAssignment", h.Id, "bookId", h.Text);
+                if (h.ChapterId == id) Add("heroAssignment", h.Id, "chapterId", h.Text);
+                if (h.PhotoCaptureId == id) Add("heroAssignment", h.Id, "photoCaptureId", h.Text);
             }
             foreach (var v in d.ShotList.Videos)
                 if ((v.SmeIds ?? new List<string>()).Contains(id)) Add("video", v.Id, "smeIds", v.Title);

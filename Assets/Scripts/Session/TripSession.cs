@@ -197,6 +197,7 @@ namespace MediaTrip.Session
             if (capture == null) throw new ArgumentNullException(nameof(capture));
             if (string.IsNullOrEmpty(capture.Id)) capture.Id = Ids.New("cap");
             if (capture.CapturedOrder <= 0) capture.CapturedOrder = Queries.NextCapturedOrder(capture.DayId);
+            if (string.IsNullOrEmpty(capture.At)) capture.At = Now();
             var item = Plan.FindItem(capture.PlanVideoId);
             if (item != null)
             {
@@ -229,6 +230,7 @@ namespace MediaTrip.Session
             if (pc == null) throw new ArgumentNullException(nameof(pc));
             if (string.IsNullOrEmpty(pc.Id)) pc.Id = Ids.New("pc");
             if (pc.CapturedOrder <= 0) pc.CapturedOrder = Queries.NextCapturedOrder(pc.DayId);
+            if (string.IsNullOrEmpty(pc.At)) pc.At = Now();
             Data.Captures.PhotoCaptures.Add(pc);
             MarkDirty(DocumentKind.Captures);
             return pc;
@@ -291,6 +293,89 @@ namespace MediaTrip.Session
         {
             Data.Captures.PhotoCaptures.RemoveAll(c => c.Id == photoCaptureId);
             Data.Captures.OutlineAssignments.RemoveAll(a => a.MediaRef != null && a.MediaRef.Kind == MediaRefKind.PhotoCapture && a.MediaRef.Id == photoCaptureId);
+            foreach (var h in Data.Captures.HeroAssignments) if (h.PhotoCaptureId == photoCaptureId) h.PhotoCaptureId = null;
+            MarkDirty(DocumentKind.Captures);
+        }
+
+        /// <summary>
+        /// Set the summary order of one day. <paramref name="orderedIds"/> are capture and photo
+        /// capture ids in the order wanted; entries of the day that are not listed keep their
+        /// relative order after the listed ones. Orders are rewritten 1..n.
+        /// </summary>
+        public void ReorderDay(string dayId, IList<string> orderedIds)
+        {
+            var current = Queries.DayTimeline(dayId);
+            var rank = new Dictionary<string, int>();
+            for (int i = 0; i < (orderedIds?.Count ?? 0); i++) if (orderedIds[i] != null && !rank.ContainsKey(orderedIds[i])) rank[orderedIds[i]] = i;
+            var sorted = current
+                .Select((e, i) => (e, i))
+                .OrderBy(t => rank.TryGetValue(t.e.Id ?? "", out var r) ? r : int.MaxValue).ThenBy(t => t.i)
+                .Select(t => t.e).ToList();
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                if (sorted[i].Capture != null) sorted[i].Capture.CapturedOrder = i + 1;
+                else sorted[i].PhotoCapture.CapturedOrder = i + 1;
+            }
+            MarkDirty(DocumentKind.Captures);
+        }
+
+        /// <summary>Move one summary entry up (-1) or down (+1) within its day. Returns false at the ends.</summary>
+        public bool MoveDayEntry(string dayId, string entryId, int delta)
+        {
+            var ids = Queries.DayTimeline(dayId).Select(e => e.Id).ToList();
+            var i = ids.IndexOf(entryId);
+            var j = i + delta;
+            if (i < 0 || j < 0 || j >= ids.Count) return false;
+            ids.RemoveAt(i);
+            ids.Insert(j, entryId);
+            ReorderDay(dayId, ids);
+            return true;
+        }
+
+        // ------------------------------------------------------------------
+        // Typed mutations: hero slots and section notes
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Fill a hero slot (chapterId null = the book cover) with a master-list photo or with a
+        /// new photo described by <paramref name="text"/>. The planned hero is left as it is.
+        /// </summary>
+        public HeroAssignment AssignHero(string bookId, string chapterId, string photoId, string text, string photoCaptureId = null)
+        {
+            if (string.IsNullOrEmpty(photoId) && string.IsNullOrWhiteSpace(text))
+                throw new ArgumentException("A hero assignment needs a photo id or a description.");
+            var existing = Data.Captures.HeroAssignments.FirstOrDefault(h => h.BookId == bookId && h.ChapterId == chapterId && photoId != null && h.PhotoId == photoId);
+            if (existing != null) return existing;
+            var a = new HeroAssignment
+            {
+                Id = Ids.New("ha"), BookId = bookId, ChapterId = chapterId, PhotoId = string.IsNullOrEmpty(photoId) ? null : photoId,
+                Text = string.IsNullOrEmpty(photoId) ? text.Trim() : null, At = Now(), PhotoCaptureId = photoCaptureId,
+            };
+            Data.Captures.HeroAssignments.Add(a);
+            MarkDirty(DocumentKind.Captures);
+            return a;
+        }
+
+        public void RemoveHeroAssignment(string assignmentId)
+        {
+            Data.Captures.HeroAssignments.RemoveAll(h => h.Id == assignmentId);
+            MarkDirty(DocumentKind.Captures);
+        }
+
+        public string SectionNoteText(string sectionId) =>
+            Data.Captures.SectionNotes.FirstOrDefault(n => n.SectionId == sectionId)?.Text ?? "";
+
+        /// <summary>Set the field note of an outline section; empty text removes it.</summary>
+        public void SetSectionNote(string bookId, string sectionId, string text)
+        {
+            var notes = Data.Captures.SectionNotes;
+            var n = notes.FirstOrDefault(x => x.SectionId == sectionId);
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                if (n != null) notes.Remove(n);
+            }
+            else if (n == null) notes.Add(new SectionNote { BookId = bookId, SectionId = sectionId, Text = text });
+            else { n.Text = text; n.BookId = bookId; }
             MarkDirty(DocumentKind.Captures);
         }
 

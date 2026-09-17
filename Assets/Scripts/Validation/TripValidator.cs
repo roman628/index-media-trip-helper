@@ -156,6 +156,21 @@ namespace MediaTrip.Validation
                 }
             }
 
+            CheckDuplicates(d.Captures.HeroAssignments.Select(h => h.Id), "heroAssignment", (m, id, k) => Err(C, m, id, k));
+            foreach (var h in d.Captures.HeroAssignments)
+            {
+                if (!bookIds.Contains(h.BookId ?? "")) Err(C, $"Hero assignment '{h.Id}' references unknown book '{h.BookId}'.", h.Id);
+                if (h.ChapterId != null && d.FindChapter(h.ChapterId) == null) Err(C, $"Hero assignment '{h.Id}' references unknown chapter '{h.ChapterId}'.", h.Id);
+                if (h.PhotoId != null && !photoIds.Contains(h.PhotoId)) Err(C, $"Hero assignment '{h.Id}' photo '{h.PhotoId}' is not in the master photo list.", h.Id);
+                if (h.PhotoId == null && string.IsNullOrWhiteSpace(h.Text)) Warn(C, $"Hero assignment '{h.Id}' has neither photoId nor text.", h.Id);
+                if (h.PhotoCaptureId != null && !photoCaptureIds.Contains(h.PhotoCaptureId)) Warn(C, $"Hero assignment '{h.Id}' points at photo capture '{h.PhotoCaptureId}', which is gone.", h.Id);
+            }
+            foreach (var n in d.Captures.SectionNotes)
+            {
+                var sec = n.BookId != null ? d.FindOutlineSection(n.BookId, n.SectionId) : null;
+                if (sec == null) Warn(C, $"A section note points at outline section '{n.SectionId}', which does not exist.", n.SectionId);
+            }
+
             foreach (var kv in d.Outlines)
             {
                 if (!bookIds.Contains(kv.Key)) Warn(O, $"Outline '{kv.Key}' does not match any book in trip.json.", kv.Key, ValidationKind.DanglingReference, kv.Key);

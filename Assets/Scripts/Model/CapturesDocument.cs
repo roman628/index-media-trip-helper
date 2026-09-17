@@ -17,6 +17,10 @@ namespace MediaTrip.Model
         public List<Capture> Captures { get; set; } = new List<Capture>();
         public List<PhotoCapture> PhotoCaptures { get; set; } = new List<PhotoCapture>();
         public List<OutlineAssignment> OutlineAssignments { get; set; } = new List<OutlineAssignment>();
+        /// <summary>Cover and chapter-hero slots filled in the field. The planned hero stays in the shot list untouched.</summary>
+        public List<HeroAssignment> HeroAssignments { get; set; } = new List<HeroAssignment>();
+        /// <summary>Notes written in the field against an outline section. The outline text itself is never edited to hold them.</summary>
+        public List<SectionNote> SectionNotes { get; set; } = new List<SectionNote>();
     }
 
     /// <summary>
@@ -48,6 +52,8 @@ namespace MediaTrip.Model
         public string DayId { get; set; }
         /// <summary>Order shot that day, which is the summary's ordering.</summary>
         public int CapturedOrder { get; set; }
+        /// <summary>When it was logged (ISO-8601). Optional; older files do not have it.</summary>
+        public string At { get; set; }
         /// <summary>Plan item ID (planned video or an amendment result). Null if unplanned.</summary>
         public string PlanVideoId { get; set; }
         /// <summary>Original shot-list number, kept so drift is visible.</summary>
@@ -111,6 +117,8 @@ namespace MediaTrip.Model
         public string Id { get; set; }
         public string DayId { get; set; }
         public int CapturedOrder { get; set; }
+        /// <summary>When it was logged (ISO-8601). Optional.</summary>
+        public string At { get; set; }
         public string PhotoId { get; set; }
         public string Text { get; set; }
         public string AfterCaptureId { get; set; }
@@ -141,6 +149,34 @@ namespace MediaTrip.Model
         /// <summary>Fuzzy score when <see cref="Source"/> is Auto; null otherwise.</summary>
         public double? Confidence { get; set; }
         public bool Confirmed { get; set; }
+        [JsonExtensionData] public IDictionary<string, JToken> Extra { get; set; }
+    }
+
+    /// <summary>
+    /// What fills a hero slot (a book cover when <see cref="ChapterId"/> is null, else that
+    /// chapter's hero): a master-list photo by id, or a new photo described on the spot.
+    /// The planned hero photo is not changed; planned and assigned are shown side by side.
+    /// </summary>
+    public class HeroAssignment
+    {
+        public string Id { get; set; }
+        public string BookId { get; set; }
+        /// <summary>Null for the book cover slot.</summary>
+        public string ChapterId { get; set; }
+        /// <summary>Master-list photo, or null when <see cref="Text"/> describes a new one.</summary>
+        public string PhotoId { get; set; }
+        public string Text { get; set; }
+        public string At { get; set; }
+        /// <summary>The photo capture logged for a new photo, when one was.</summary>
+        public string PhotoCaptureId { get; set; }
+        [JsonExtensionData] public IDictionary<string, JToken> Extra { get; set; }
+    }
+
+    public class SectionNote
+    {
+        public string BookId { get; set; }
+        public string SectionId { get; set; }
+        public string Text { get; set; }
         [JsonExtensionData] public IDictionary<string, JToken> Extra { get; set; }
     }
 }
