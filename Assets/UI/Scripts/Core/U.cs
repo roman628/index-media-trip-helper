@@ -177,7 +177,8 @@ namespace MediaTrip.UI
             var v = new VisualElement().Cls("chip " + classes);
             v.Add(Text(text).Bold());
             var x = Tap(onRemove, "", new Glyph(GlyphKind.Cross, 14));
-            x.style.marginLeft = 10; x.style.width = 32; x.style.height = 32; x.style.alignItems = Align.Center; x.style.justifyContent = Justify.Center;
+            // a full 44 pt target that reaches the chip's rounded end
+            x.style.marginLeft = 2; x.style.marginRight = -12; x.style.width = 44; x.style.height = 44; x.style.alignItems = Align.Center; x.style.justifyContent = Justify.Center;
             v.Add(x);
             return v;
         }

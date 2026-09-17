@@ -254,7 +254,7 @@ Label { color: var(--tx); white-space: normal; -unity-text-align: middle-left; m
 .idxb:hover { background-color: var(--sf2); }
 .idxb.on { background-color: var(--sf); color: var(--tx); border-color: var(--ac); }
 .jump { padding: 8px 12px 0 12px; border-bottom-width: 2px; border-color: var(--bd); flex-shrink: 0; }
-.jumpb { height: 40px; padding: 0 14px; margin: 0 6px 8px 0; border-radius: 20px; font-size: 14px; -unity-font-style: bold; color: var(--tx2); white-space: nowrap; border-width: var(--bw); border-color: rgba(0,0,0,0); background-color: rgba(0,0,0,0); flex-shrink: 0; }
+.jumpb { height: 44px; padding: 0 14px; margin: 0 6px 8px 0; border-radius: 22px; font-size: 14px; -unity-font-style: bold; color: var(--tx2); white-space: nowrap; border-width: var(--bw); border-color: rgba(0,0,0,0); background-color: rgba(0,0,0,0); flex-shrink: 0; }
 .jumpb.on { color: var(--tx); border-color: var(--ac); background-color: var(--sf); }
 .sec { margin-bottom: 26px; flex-direction: column; }
 .kv { flex-direction: row; align-items: flex-start; min-height: 44px; padding: 6px 0; border-bottom-width: 1px; border-color: var(--sf2); }
