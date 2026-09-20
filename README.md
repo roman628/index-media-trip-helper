@@ -7,32 +7,57 @@ Everything is JSON on disk, fully offline. No accounts, no network, no cloud ser
 
 ## What it does
 
-The app opens on the **trip library** (New trip, Import). A trip is five documents, on a rail
-in landscape and a bottom bar in portrait and on a phone. Each has a read state; Trip, Shot
-list and Outlines also have an Edit toggle in the header. Search and a menu (Share, Import,
-Theme) sit beside it, with a one-tap sun button for the high-contrast scheme.
+The app opens on the **trip library** (New trip, Import, Theme). A trip is five documents, on
+a rail in landscape and a bottom bar in portrait and on a phone. The rule everywhere: **Edit
+changes the document; the normal state annotates it.** Trip, Shot list and Outlines have an
+Edit toggle in the header; Covers and Summary are annotation only. Search and a menu (Share,
+the screen's named exports, Import, Theme, Shortcuts) sit beside it.
 
 - **Trip**: one scrolling document (identity, dates and days, location, weather, media file,
   logistics, actions, books and teams, people) with a section index that follows the scroll.
-- **Shot list**: Working (the plan as it now stands), Original (the printed list) and Changes
-  (the amendment log), plus "Hide done". A video's detail has Film as its primary action, with
-  Rename, Combine and Drop beneath it. Those record amendments; the plan itself is only
-  edited in the Edit state, and never for something already filmed or changed.
-- **Outlines**: book chips, chapter list, section view. The outline text sits beside "My
-  notes" and "Placed here", where a suggested placement is kept with one tap.
+  Arrive and depart are travel days; the shooting days between them fill themselves in.
+- **Shot list**: Working (the plan as it now stands), Original (the printed list) and Changes,
+  plus "Hide done". Videos and photos expand and collapse in place (Expand all reads like the
+  printed document); each video has a menu with Film, Rename, Combine and Drop. Photos are
+  listed with their book. Edit means two different things:
+  - *Original + Edit* is authoring the plan. It records nothing, until media exists; then
+    the app asks whether this is a fix to what was typed (logged as a correction) or a change
+    of plan (which belongs in Working).
+  - *Working + Edit* is changing the plan during the trip. Every change is recorded: a
+    retitle is a rename, a delete is a drop, a new video or photo is an add, and content
+    (scene, SME, notes, photos) is a "revise" carrying the field-level before and after.
+  Changes lists what changed, and, under their own heading, corrections to the original.
+- **Outlines**: one screen per book. Chapters and their sections expand and collapse in
+  place; a collapsed row shows the media attached and the first words of its notes. Notes and
+  placed media are one idea at two levels: on the chapter as a whole, or on a section. Edit
+  types the outline in (names, bullets, drag or move up/down to reorder, the whole thing from
+  the keyboard) and has no notes or Place media, because that is annotation.
 - **Covers**: every book's cover and chapter heroes on one board. Each slot shows what was
-  planned and what is assigned: the planned photo once shot, another photo from the master
-  list, or a new one described on the spot. A slot is assigned to, never ticked.
+  planned and what is assigned. One search box finds any photo of any book (saying which
+  book, which chapter, cover or which hero) or creates what was typed. A photo of another
+  book is moved or shared only after asking. A slot is assigned to, never ticked, and its
+  notes are the chapter's notes, the same ones Outlines shows.
 - **Summary**: what was shot, by day, in order. Video and Photos append at the bottom; rows
   are dragged by their handle to reorder (a tap on the handle offers Move up / Move down).
+  An entry's day and time can be changed.
 - **Filming**: the entry form with the matching line of the plan above each field, a Plan
-  button that opens the whole plan beside the form, and shot-list suggestions while typing
-  the title. Saving writes a capture (and an "add" amendment for something unplanned).
+  button that opens the whole plan beside the form, shot-list suggestions while typing the
+  title, and fuzzy search for SMEs with their job title. Saving writes a capture (and an
+  "add" for something unplanned).
 - **Transfer**: Share writes a zip (or a single-file JSON bundle where zipping is unavailable)
   and hands it to the platform: the iOS share sheet, a save dialog in the Editor, or the
-  app's Export folder in a standalone build. Import accepts a whole trip or a single document
-  and detects which. Every import is validated first and applied all at once or not at all.
-  A fresh install starts with an empty library.
+  app's Export folder in a standalone build. Exports are named for what they are: original
+  shot list, working shot list, changes, media summary, an outline. Import accepts a whole
+  trip or a single document and detects which; an import started for one kind of document
+  (an outline, from Outlines) refuses anything else. Every import is validated first and
+  applied all at once or not at all. A fresh install starts with an empty library.
+
+A chapter is one thing, owned by the shot list; an outline attaches sections to it by id, so
+a chapter typed into an outline is a chapter of the plan. New photos and videos, wherever
+they are created (Covers, Outlines, the shot list), go through one operation: they land in
+the working shot list in the right book and chapter, marked new, and show in Changes.
+Nothing is silently orphaned: a delete that would break an assignment lists what it touches
+first, and then detaches or moves it. A capture is never deleted by a plan edit.
 
 Layouts are built in points for three kinds of screen (phone, portrait tablet, landscape
 tablet) chosen at run time from the panel size; every screen works in all of them. A
@@ -62,12 +87,13 @@ temp folders; nothing is written into the project.
 
 | Folder | Contents |
 |---|---|
-| `Assets/Scripts/Model` | JSON model classes for `trip.json`, `shotlist.json`, `outlines/*.json`, `captures.json`. |
+| `Assets/Scripts/Model` | JSON model classes for `trip.json`, `shotlist.json`, `outlines/*.json`, `captures.json`, and `TripNormalizer` (the rules that span documents). |
 | `Assets/Scripts/Persistence` | Load, save, migrations, the trip library, zip and JSON bundle packaging, autosave. |
 | `Assets/Scripts/Status` | The plan resolver: amendments applied to the immutable shot list, derived status per item. |
 | `Assets/Scripts/Query` | Read API for every view (full list, remaining, heroes, day summary, outline coverage). |
 | `Assets/Scripts/Search` | Deterministic fuzzy matcher and the trip-wide search helpers. |
-| `Assets/Scripts/Authoring` | Structural editing of the plan, outlines, people, node trees, paste parsing. |
+| `Assets/Scripts/Authoring` | Structural editing of the plan, outlines, people, node trees, paste parsing; `PlanEdits` (what an edit records in Original and in Working) and `Deletions` (what a delete would touch). |
+| `Assets/Scripts/Export` | The export seam: named exports and one writer per format (JSON today). |
 | `Assets/Scripts/Session` | `TripSession`: the open trip, dirty tracking, autosave, typed mutations. |
 | `Assets/Scripts/Validation` | Referential-integrity checks. |
 | `Assets/Scripts/Tests` | EditMode tests for the data layer. |
@@ -92,6 +118,9 @@ session.Queries.Heroes();
 session.Queries.DaySummary(dayId);
 session.Search.SearchShotList("entry perm");         // fuzzy search
 session.AddCapture(capture);                         // filming writes captures
+session.CreateMedia(MediaKind.Photo, text, bookId, chapterId); // the one path for new media
+new PlanEdits(session, PlanEditMode.Working).SetScene(id, text); // recorded as a revise
+session.SetNote(bookId, chapterId, sectionId, text); // notes: a chapter, or one of its sections
 session.ReorderDay(dayId, orderedIds);               // the summary's order
 session.AssignHero(bookId, chapterId, photoId, null); // cover and hero slots are assigned
 session.Combine(new[] { "v-001", "v-002" }, "Both"); // plan changes are amendments
@@ -100,15 +129,19 @@ session.Changed += Refresh;                          // rebuild the view after a
 ```
 
 Every mutation marks the affected document dirty and the autosaver writes it shortly after.
-Once a capture or amendment references a planned item, deleting, moving or retitling that item
-in the plan is refused and routed through an amendment instead, so the paper list, the capture
-log and the app never silently disagree.
+The low-level plan editor still refuses to delete, move or retitle an item that a capture or
+amendment references. The app goes through `PlanEdits` instead: in Working the edit becomes a
+recorded change, and in Original it is a logged correction (or, for a delete, a confirmed
+detach), so the paper list, the capture log and the app never silently disagree.
 
 ## Data rules
 
 - The shot list is the plan and is immutable in the field. Captures reference it by ID.
 - Video numbers run continuously across books and chapters. Captures keep the number they
   were shot against even if the plan is renumbered later.
-- Every document carries a `schemaVersion`; migrations live in one place (`SchemaMigrator`).
+- Every document carries a `schemaVersion` (currently 2); migrations live in `SchemaMigrator`,
+  and the rules that span documents (chapters, notes) in `TripNormalizer`, run on every load.
+- Exporting is one interface per format (`ITripExportFormat`). JSON is the first; a Word
+  writer for the company templates registers beside it without touching the UI.
 - Real trip data lives in `TripData/` at the repo root and is never committed. Use the sample
   trip for development.
