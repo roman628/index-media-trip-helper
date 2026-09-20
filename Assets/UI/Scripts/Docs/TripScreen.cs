@@ -313,7 +313,7 @@ namespace MediaTrip.UI.Docs
                     last.name = "member:" + bid + ":last";
                     last.style.marginRight = 6;
                     last.RegisterCallback<KeyDownEvent>(e => { if (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter) { e.StopPropagation(); Add(); } }, TrickleDown.TrickleDown);
-                    col.Add(U.Row(first, last, U.Btn("Add", Add, "sm pri"), U.Btn("Done", () => { T.MemberBook = null; app.State.Focus = null; app.Render(); }, "sm ghost ml8")).Cls("wrap"));
+                    col.Add(U.Row(first, last, U.Btn("Add", Add, "sm pri"), U.Btn("Close", () => { T.MemberBook = null; app.State.Focus = null; app.Render(); }, "sm ghost ml8")).Cls("wrap"));
                 }
             }
             row.Add(col);
@@ -424,7 +424,7 @@ namespace MediaTrip.UI.Docs
             chip.style.marginBottom = 6;
             draft.Add(chip);
             sec.Add(draft);
-            sec.Add(U.Row(U.Btn("Add", Commit, "sm pri"), U.Btn("Done", () => { T.NewPerson = null; app.State.Focus = null; app.Render(); }, "sm ghost ml8")));
+            sec.Add(U.Row(U.Btn("Add person", Commit, "sm pri"), U.Btn("Close", () => { T.NewPerson = null; app.State.Focus = null; app.Render(); }, "sm ghost ml8")));
         }
 
         /// <summary>Tapping the organisation chip moves the person to the next group. A role that only came from the old group follows.</summary>

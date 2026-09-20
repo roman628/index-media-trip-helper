@@ -284,7 +284,7 @@ namespace MediaTrip.UI.Docs
             if (d.ItemId != null)
             {
                 var b = data.FindBook(d.BookId); var c = data.FindChapter(d.ChapterId);
-                if (b != null) where.Add(U.Pill("Book " + b.Number + " · " + b.Name, "ac md"));
+                if (b != null) where.Add(U.Pill(Fmt.BookName(b), "ac md"));
                 if (c != null) where.Add(U.Pill("Ch." + c.Number + " · " + c.Name, "ac md"));
                 where.Add(U.Pill(dayText, "md"));
                 return;
@@ -301,7 +301,7 @@ namespace MediaTrip.UI.Docs
             foreach (var b in data.Trip.Books.OrderBy(x => x.Number))
             {
                 var bid = b.Id;
-                where.Add(U.Chip("Book " + b.Number, d.BookId == bid, () => { d.BookId = bid; d.ChapterId = null; FillWhere(app, d, where); }));
+                where.Add(U.Chip(Fmt.BookName(b), d.BookId == bid, () => { d.BookId = bid; d.ChapterId = null; FillWhere(app, d, where); }, "wrapok"));
             }
             foreach (var c in data.ChaptersOf(d.BookId))
             {
