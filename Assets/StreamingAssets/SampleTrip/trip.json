@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "tripId": "trip-sample-0001",
   "identity": {
     "clientAbbrev": "ACME",

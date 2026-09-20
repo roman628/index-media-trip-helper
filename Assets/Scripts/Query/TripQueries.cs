@@ -75,6 +75,8 @@ namespace MediaTrip.Query
         public Chapter Chapter;
         /// <summary>The planned hero photo for the slot; null when the plan has none.</summary>
         public PhotoItem Planned;
+        /// <summary>Every photo planned for the slot. Usually one; a photo moved here in the working copy can make a second.</summary>
+        public List<PhotoItem> PlannedPhotos = new List<PhotoItem>();
         public List<SlotAssignment> Assigned = new List<SlotAssignment>();
         public bool IsCover => Chapter == null;
         public bool IsEmpty => Assigned.Count == 0;
@@ -106,10 +108,12 @@ namespace MediaTrip.Query
         public Capture Capture;
         public PhotoCapture PhotoCapture;
         public PhotoItem PlannedPhoto;
+        /// <summary>A video of the working shot list placed before (or without) being filmed.</summary>
+        public PlanItem PlannedVideo;
         public string Title;
         public bool Confirmed => Assignment.Confirmed;
         public bool IsAutoUnconfirmed => Assignment.Source == AssignmentSource.Auto && !Assignment.Confirmed;
-        public bool IsDangling => Capture == null && PhotoCapture == null && PlannedPhoto == null;
+        public bool IsDangling => Capture == null && PhotoCapture == null && PlannedPhoto == null && PlannedVideo == null;
     }
 
     public class SectionCoverage
@@ -424,7 +428,7 @@ namespace MediaTrip.Query
         public List<CoverBook> CoverBoard()
         {
             var board = new List<CoverBook>();
-            foreach (var book in Data.Trip.Books.OrderBy(b => b.Number))
+            foreach (var book in Data.Trip.Books)   // entry order; a book's name carries its own number
             {
                 var cb = new CoverBook { Book = book };
                 cb.Slots.Add(Slot(book, null));
@@ -446,19 +450,62 @@ namespace MediaTrip.Query
         private CoverSlot Slot(Book book, Chapter chapter)
         {
             var slot = new CoverSlot { Book = book, Chapter = chapter };
-            slot.Planned = chapter == null
-                ? Plan.Photos.FirstOrDefault(p => p.HeroType == HeroType.BookCover && p.Photo.BelongsToBook(book.Id))
-                : ChapterHero(chapter.Id);
-            if (slot.Planned != null && slot.Planned.Status == PhotoStatus.Captured)
-                slot.Assigned.Add(new SlotAssignment { IsPlanned = true, Photo = slot.Planned, Text = slot.Planned.Description });
+            // A photo moved here in the working copy can make a second planned cover or hero; all are shown.
+            slot.PlannedPhotos = Plan.Photos.Where(p => p.Status != PhotoStatus.Dropped && (chapter == null
+                ? p.HeroType == HeroType.BookCover && p.Photo.BelongsToBook(book.Id)
+                : p.HeroType == HeroType.ChapterHero && p.Photo.BelongsToChapter(chapter.Id))).ToList();
+            slot.Planned = slot.PlannedPhotos.FirstOrDefault();
+            foreach (var planned in slot.PlannedPhotos.Where(p => p.Status == PhotoStatus.Captured))
+                slot.Assigned.Add(new SlotAssignment { IsPlanned = true, Photo = planned, Text = planned.Description });
             foreach (var h in Data.Captures.HeroAssignments)
             {
                 if (h.BookId != book.Id || h.ChapterId != chapter?.Id) continue;
                 var photo = h.PhotoId != null ? Plan.FindPhoto(h.PhotoId) : null;
-                if (photo != null && slot.Planned != null && photo.Id == slot.Planned.Id && slot.Assigned.Any(a => a.IsPlanned)) continue;
+                if (photo != null && slot.Assigned.Any(a => a.IsPlanned && a.Photo.Id == photo.Id)) continue;
                 slot.Assigned.Add(new SlotAssignment { Assignment = h, Photo = photo, Text = photo != null ? photo.Description : (h.Text ?? h.PhotoId) });
             }
             return slot;
+        }
+
+        // ------------------------------------------------------------------
+        // Placed and unplaced media, on a chapter as a whole or on one section
+        // ------------------------------------------------------------------
+
+        /// <summary>Media placed on the chapter as a whole (<paramref name="sectionId"/> null) or in one of its sections.</summary>
+        public List<AssignedMedia> PlacedIn(string chapterId, string sectionId = null) =>
+            Data.Captures.OutlineAssignments
+                .Where(a => sectionId != null ? a.SectionId == sectionId : (a.ChapterId == chapterId && a.SectionId == null))
+                .Select(ResolveAssignment).ToList();
+
+        /// <summary>
+        /// What was shot for a chapter and sits nowhere in its outline: captures of the chapter,
+        /// and photo captures of its photos or of what its hero slot was assigned. Media that
+        /// lost its place when a section was deleted shows up here, ready to be placed again.
+        /// </summary>
+        public List<TimelineEntry> UnplacedIn(string chapterId)
+        {
+            var placed = new HashSet<string>(Data.Captures.OutlineAssignments.Where(a => a.MediaRef?.Id != null).Select(a => a.MediaRef.Id));
+            var list = new List<TimelineEntry>();
+            foreach (var c in Data.Captures.Captures)
+                if (c.ChapterId == chapterId && !placed.Contains(c.Id) && (c.PlanVideoId == null || !placed.Contains(c.PlanVideoId)))
+                    list.Add(new TimelineEntry { Capture = c, Item = Plan.FindItem(c.PlanVideoId) });
+            var slotCaptures = new HashSet<string>(Data.Captures.HeroAssignments.Where(h => h.ChapterId == chapterId && h.PhotoCaptureId != null).Select(h => h.PhotoCaptureId));
+            foreach (var pc in Data.Captures.PhotoCaptures)
+            {
+                if (placed.Contains(pc.Id)) continue;
+                var photo = Plan.FindPhoto(pc.PhotoId);
+                if (photo != null && placed.Contains(photo.Id)) continue;
+                if ((photo != null && photo.Photo.BelongsToChapter(chapterId)) || slotCaptures.Contains(pc.Id)) list.Add(new TimelineEntry { PhotoCapture = pc });
+            }
+            return list;
+        }
+
+        /// <summary>First words of a note, for the collapsed view of a chapter or section.</summary>
+        public static string Excerpt(string text, int words = 8)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return "";
+            var parts = text.Split(new[] { ' ', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length <= words ? string.Join(" ", parts) : string.Join(" ", parts.Take(words)) + "…";
         }
 
         /// <summary>Every trip day in date order, plus a trailing pseudo-day for captures on unknown day IDs.</summary>
@@ -527,6 +574,12 @@ namespace MediaTrip.Query
                 case MediaRefKind.PlannedPhoto:
                     media.PlannedPhoto = Plan.FindPhoto(id);
                     media.Title = media.PlannedPhoto?.Description;
+                    break;
+                case MediaRefKind.PlannedVideo:
+                    media.PlannedVideo = Plan.FindItem(id);
+                    media.Title = media.PlannedVideo?.Title;
+                    // once it is filmed, the placement shows the capture
+                    media.Capture = media.PlannedVideo?.ResolvedItems.SelectMany(i => i.Captures).FirstOrDefault();
                     break;
             }
             if (media.Title == null) media.Title = "(missing " + kind + " " + id + ")";

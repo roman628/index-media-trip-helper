@@ -150,15 +150,20 @@ namespace MediaTrip.Tests
         public void Set_Get_Clear()
         {
             var s = new TripSession(Fixtures.LoadSample(), () => 0);
-            Assert.AreEqual("", s.SectionNoteText("s-1-1"));
-            s.SetSectionNote("b-001", "s-1-1", "Gallery wide first.");
-            s.SetSectionNote("b-001", "s-1-1", "Gallery wide first, then the hatch.");
-            Assert.AreEqual(1, s.Data.Captures.SectionNotes.Count);
-            Assert.AreEqual("Gallery wide first, then the hatch.", s.SectionNoteText("s-1-1"));
-            var outlineBefore = TripPackage.ExportDocumentJson(s.Data, DocumentKind.Outline, "b-001");
-            Assert.IsFalse(outlineBefore.Contains("Gallery wide first"), "the outline document is not where field notes go");
-            s.SetSectionNote("b-001", "s-1-1", "  ");
-            Assert.IsEmpty(s.Data.Captures.SectionNotes);
+            Assert.AreEqual("", s.NoteText("c-101", "s-1-1"));
+            s.SetNote("b-001", "c-101", "s-1-1", "Gallery wide first.");
+            s.SetNote("b-001", "c-101", "s-1-1", "Gallery wide first, then the hatch.");
+            Assert.AreEqual(2, s.Data.Captures.Notes.Count, "the section's note and the chapter's own");
+            Assert.AreEqual("Gallery wide first, then the hatch.", s.NoteText("c-101", "s-1-1"));
+            Assert.AreEqual("Consider opening the chapter on the gallery wide shot.", s.NoteText("c-101"), "the chapter as a whole has its own note");
+            var outline = TripPackage.ExportDocumentJson(s.Data, DocumentKind.Outline, "b-001");
+            Assert.IsFalse(outline.Contains("Gallery wide first"), "the outline document is not where notes go");
+            s.SetNote("b-001", "c-101", "s-1-1", "  ");
+            Assert.AreEqual(1, s.Data.Captures.Notes.Count);
+
+            // a book with no outline still has chapters, and a chapter can carry a note
+            s.SetNote("b-002", "c-202", null, "Try for the dead panel shot.");
+            Assert.AreEqual("Try for the dead panel shot.", s.NoteText("c-202"));
         }
 
         [Test]
@@ -166,7 +171,7 @@ namespace MediaTrip.Tests
         {
             var s = new TripSession(Fixtures.LoadSample(), () => 0);
             Assert.IsEmpty(TripValidator.Validate(s.Data));
-            s.SetSectionNote("b-001", "s-gone", "orphan");
+            s.SetNote("b-001", "c-101", "s-gone", "orphan");
             s.Data.Captures.HeroAssignments.Add(new HeroAssignment { Id = "ha-x", BookId = "b-001", ChapterId = "c-101", PhotoId = "ph-missing" });
             var issues = TripValidator.Validate(s.Data);
             Assert.IsTrue(issues.Any(i => i.Severity == IssueSeverity.Warning && i.EntityId == "s-gone"));
@@ -182,13 +187,13 @@ namespace MediaTrip.Tests
                 var data = Fixtures.LoadSample();
                 data.FolderPath = folder;
                 var s = new TripSession(data, () => 0);
-                s.SetSectionNote("b-001", "s-1-2", "Two exits blocked.");
+                s.SetNote("b-001", "c-101", "s-1-2", "Two exits blocked.");
                 s.AssignHero("b-002", "c-202", null, "Operator at the dead panel");
                 s.AddCapture(new Capture { DayId = "d-002", Title = "Stamped" });
                 s.SaveAll();
 
                 var back = TripLoader.Load(folder);
-                Assert.AreEqual("Two exits blocked.", back.Captures.SectionNotes.Single().Text);
+                Assert.AreEqual("Two exits blocked.", back.Captures.Notes.Single(n => n.SectionId == "s-1-2").Text);
                 Assert.AreEqual("Operator at the dead panel", back.Captures.HeroAssignments.Single().Text);
                 Assert.IsNotNull(back.Captures.Captures.Last().At);
                 Assert.IsNull(back.Captures.Captures.First().At, "older captures have no timestamp and none is invented");

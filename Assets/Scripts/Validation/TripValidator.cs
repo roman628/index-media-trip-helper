@@ -101,14 +101,25 @@ namespace MediaTrip.Validation
             }
 
             var planIds = new HashSet<string>(videoIds);
+            // photos added during the trip exist only as an "add" amendment; they are photos for every check below
+            foreach (var am in d.Captures.Amendments.Where(a => a.Type == AmendmentType.Add && a.NewMedia == MediaKind.Photo))
+                foreach (var r in am.Results ?? Enumerable.Empty<string>()) photoIds.Add(r);
             foreach (var am in d.Captures.Amendments)
             {
+                if (am.Type == AmendmentType.Add && am.NewMedia == MediaKind.Photo) { CheckPlace(am); continue; }
+                if (am.Type == AmendmentType.Revise && (am.Changes == null || am.Changes.Count == 0))
+                    Warn(C, $"Amendment '{am.Id}' (revise) changes nothing.", am.Id);
                 foreach (var t in am.Targets ?? Enumerable.Empty<string>())
                     if (!planIds.Contains(t) && !photoIds.Contains(t)) Err(C, $"Amendment '{am.Id}' ({am.Type}) targets unknown item '{t}'.", am.Id);
                 foreach (var r in am.Results ?? Enumerable.Empty<string>())
                     if (am.Type == AmendmentType.Combine || am.Type == AmendmentType.Split || am.Type == AmendmentType.Add) planIds.Add(r);
                 if (am.Type == AmendmentType.Add && string.IsNullOrEmpty(am.NewTitle) && (am.NewTitles == null || am.NewTitles.Count == 0))
                     Warn(C, $"Amendment '{am.Id}' (add) has no title.", am.Id, ValidationKind.MissingText);
+                CheckPlace(am);
+            }
+
+            void CheckPlace(Amendment am)
+            {
                 if (am.NewBookId != null && !bookIds.Contains(am.NewBookId)) Err(C, $"Amendment '{am.Id}' references unknown book '{am.NewBookId}'.", am.Id);
                 if (am.NewChapterId != null && !chapterIds.Contains(am.NewChapterId)) Err(C, $"Amendment '{am.Id}' references unknown chapter '{am.NewChapterId}'.", am.Id);
             }
@@ -141,13 +152,16 @@ namespace MediaTrip.Validation
                 if (a.MediaRef == null || a.MediaRef.Id == null) { Err(C, $"Assignment '{a.Id}' has no mediaRef.", a.Id, ValidationKind.Other); continue; }
                 bool exists = a.MediaRef.Kind == MediaRefKind.Capture ? captureIds.Contains(a.MediaRef.Id)
                     : a.MediaRef.Kind == MediaRefKind.PhotoCapture ? photoCaptureIds.Contains(a.MediaRef.Id)
+                    : a.MediaRef.Kind == MediaRefKind.PlannedVideo ? planIds.Contains(a.MediaRef.Id)
                     : photoIds.Contains(a.MediaRef.Id);
                 if (!exists) Err(C, $"Assignment '{a.Id}' references unknown {a.MediaRef.Kind} '{a.MediaRef.Id}'.", a.Id);
                 if (!bookIds.Contains(a.BookId ?? "")) Err(C, $"Assignment '{a.Id}' references unknown book '{a.BookId}'.", a.Id);
                 var outline = d.FindOutline(a.BookId);
-                if (outline == null) { Warn(C, $"Assignment '{a.Id}' targets book '{a.BookId}' which has no outline yet.", a.Id); continue; }
+                // Media can be placed on a chapter as a whole, and a chapter exists whether or not its book has an outline yet.
+                if (a.ChapterId != null && !chapterIds.Contains(a.ChapterId)) Err(C, $"Assignment '{a.Id}' references unknown chapter '{a.ChapterId}'.", a.Id);
+                if (a.SectionId == null) continue;
+                if (outline == null) { Warn(C, $"Assignment '{a.Id}' targets a section of book '{a.BookId}', which has no outline yet.", a.Id); continue; }
                 var chapter = outline.Chapters.FirstOrDefault(c => c.Id == a.ChapterId);
-                if (a.ChapterId != null && chapter == null) Err(C, $"Assignment '{a.Id}' references unknown outline chapter '{a.ChapterId}'.", a.Id);
                 if (a.SectionId != null)
                 {
                     var section = (chapter?.Sections ?? outline.Chapters.SelectMany(c => c.Sections)).FirstOrDefault(s => s.Id == a.SectionId);
@@ -165,11 +179,23 @@ namespace MediaTrip.Validation
                 if (h.PhotoId == null && string.IsNullOrWhiteSpace(h.Text)) Warn(C, $"Hero assignment '{h.Id}' has neither photoId nor text.", h.Id);
                 if (h.PhotoCaptureId != null && !photoCaptureIds.Contains(h.PhotoCaptureId)) Warn(C, $"Hero assignment '{h.Id}' points at photo capture '{h.PhotoCaptureId}', which is gone.", h.Id);
             }
-            foreach (var n in d.Captures.SectionNotes)
+            foreach (var n in d.Captures.Notes ?? new List<PlaceNote>())
             {
-                var sec = n.BookId != null ? d.FindOutlineSection(n.BookId, n.SectionId) : null;
-                if (sec == null) Warn(C, $"A section note points at outline section '{n.SectionId}', which does not exist.", n.SectionId);
+                if (n.SectionId != null)
+                {
+                    var sec = n.BookId != null ? d.FindOutlineSection(n.BookId, n.SectionId) : null;
+                    if (sec == null) Warn(C, $"A note points at outline section '{n.SectionId}', which does not exist.", n.SectionId);
+                }
+                else if (n.ChapterId == null || !chapterIds.Contains(n.ChapterId))
+                    Warn(C, $"A note points at chapter '{n.ChapterId}', which does not exist.", n.ChapterId);
             }
+            CheckDuplicates((d.Captures.Edits ?? new List<ChangeRecord>()).Select(e => e.Id), "change record", (m, id, k) => Err(C, m, id, k));
+
+            // A chapter is one thing: an outline may only attach to chapters of its own book.
+            foreach (var kv in d.Outlines)
+                foreach (var oc in kv.Value?.Chapters ?? new List<OutlineChapter>())
+                    if (d.FindChapter(oc.Id)?.BookId != kv.Key)
+                        Err(O, $"Outline '{kv.Key}' has sections for chapter '{oc.Id}', which is not a chapter of that book.", oc.Id, ValidationKind.DanglingReference, kv.Key);
 
             foreach (var kv in d.Outlines)
             {

@@ -21,7 +21,7 @@ namespace MediaTrip.Model
     /// <summary>Schema version written into every document and checked by the migrator.</summary>
     public static class Schema
     {
-        public const int CurrentVersion = 1;
+        public const int CurrentVersion = 2;
     }
 
     /// <summary>

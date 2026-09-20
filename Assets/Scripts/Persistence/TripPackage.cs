@@ -155,6 +155,8 @@ namespace MediaTrip.Persistence
             if (obj["videos"] != null || obj["photos"] != null) return DocumentKind.ShotList;
             if (obj["captures"] != null || obj["amendments"] != null || obj["photoCaptures"] != null || obj["outlineAssignments"] != null) return DocumentKind.Captures;
             if (obj["bookId"] != null && obj["chapters"] != null) return DocumentKind.Outline;
+            // an outline typed or converted elsewhere may carry no bookId; its chapters hold sections, a shot list's never do
+            if (obj["chapters"] is JArray chapters && chapters.OfType<JObject>().Any(c => c["sections"] != null)) return DocumentKind.Outline;
             if (obj["people"] != null || obj["books"] != null || obj["identity"] != null || obj["days"] != null) return DocumentKind.Trip;
             if (obj["chapters"] != null) return DocumentKind.ShotList;
             return null;
@@ -412,6 +414,7 @@ namespace MediaTrip.Persistence
                 if (!string.IsNullOrEmpty(doc.TripId) && !string.IsNullOrEmpty(data.Trip.TripId) && doc.TripId != data.Trip.TripId)
                     Add(report, IssueSeverity.Warning, ImportIssueKind.Other, null, doc.TripId, $"{doc.GetType().Name} tripId '{doc.TripId}' does not match trip.json '{data.Trip.TripId}'.");
 
+            if (!parseFailed) TripNormalizer.Normalize(data);
             foreach (var v in TripValidator.Validate(data))
                 Add(report, v.Severity, MapKind(v.Kind), null, v.EntityId, v.Message);
 
@@ -536,7 +539,13 @@ namespace MediaTrip.Persistence
         /// Validates the merged result (e.g. a new shot list must still contain every video
         /// that existing captures reference).
         /// </summary>
-        public static ImportReport ValidateDocument(TripData target, string json, DocumentKind kind, string sourceName = null)
+        /// <summary>
+        /// Dry run of replacing one document of an open trip. <paramref name="outlineBookId"/>
+        /// imports an outline into that book whatever bookId the file carries (an outline
+        /// converted from Word has none). The outline's chapters are matched to the book's plan
+        /// chapters by id, number, then name; unmatched ones are created in the plan.
+        /// </summary>
+        public static ImportReport ValidateDocument(TripData target, string json, DocumentKind kind, string sourceName = null, string outlineBookId = null)
         {
             var report = new ImportReport { Source = sourceName ?? kind.ToString(), Format = "document", SingleDocumentKind = kind };
             var staged = CloneData(target);
@@ -550,6 +559,7 @@ namespace MediaTrip.Persistence
                     case DocumentKind.Outline:
                     {
                         var o = TripLoader.LoadDocumentFromJson<OutlineDocument>(json, kind, sourceName);
+                        if (outlineBookId != null) o.BookId = outlineBookId;
                         if (string.IsNullOrEmpty(o.BookId))
                             Add(report, IssueSeverity.Error, ImportIssueKind.DanglingReference, sourceName, null, "Outline has no bookId.");
                         else if (target.FindBook(o.BookId) == null)
@@ -574,6 +584,7 @@ namespace MediaTrip.Persistence
             if (imported != null && !string.IsNullOrEmpty(imported.TripId) && !string.IsNullOrEmpty(target.TripId) && imported.TripId != target.TripId)
                 Add(report, IssueSeverity.Warning, ImportIssueKind.Other, sourceName, imported.TripId, $"Document tripId '{imported.TripId}' differs from the open trip '{target.TripId}'; it will be rewritten.");
 
+            TripNormalizer.Normalize(staged);
             foreach (var v in TripValidator.Validate(staged))
                 Add(report, v.Severity, MapKind(v.Kind), sourceName, v.EntityId, v.Message);
             Count(report, staged);
@@ -582,10 +593,24 @@ namespace MediaTrip.Persistence
             return report;
         }
 
-        /// <summary>Validate and, if clean, replace the document in the open session (marks it dirty). Throws <see cref="ImportBlockedException"/> otherwise.</summary>
-        public static ImportReport ImportDocument(TripSession session, string json, DocumentKind kind, string sourceName = null)
+        /// <summary>
+        /// When an import was started for one kind of document (the Outlines screen imports an
+        /// outline), anything else is refused before it is looked at further. Returns the reason,
+        /// or null when the file is what was asked for.
+        /// </summary>
+        public static string CheckExpectedKind(ImportReport report, DocumentKind expected)
         {
-            var report = ValidateDocument(session.Data, json, kind, sourceName);
+            if (report == null) return "Nothing was read.";
+            if (report.SingleDocumentKind == expected) return null;
+            string Name(DocumentKind k) => k == DocumentKind.ShotList ? "a shot list" : k == DocumentKind.Outline ? "an outline" : k == DocumentKind.Captures ? "a media summary" : "a trip document";
+            var got = report.IsWholeTrip ? "a whole trip" : report.SingleDocumentKind != null ? Name(report.SingleDocumentKind.Value) : "not a trip file";
+            return "This file is " + got + ", not " + Name(expected) + ". Nothing was imported.";
+        }
+
+        /// <summary>Validate and, if clean, replace the document in the open session (marks it dirty). Throws <see cref="ImportBlockedException"/> otherwise.</summary>
+        public static ImportReport ImportDocument(TripSession session, string json, DocumentKind kind, string sourceName = null, string outlineBookId = null)
+        {
+            var report = ValidateDocument(session.Data, json, kind, sourceName, outlineBookId);
             if (!report.CanImport) throw new ImportBlockedException(report);
             var staged = report.Staged;
             switch (kind)
@@ -609,7 +634,10 @@ namespace MediaTrip.Persistence
                     var o = staged.Outlines[report.OutlineBookId];
                     o.TripId = session.Data.TripId;
                     session.Data.Outlines[o.BookId] = o;
-                    session.MarkDirty(DocumentKind.Outline, o.BookId);
+                    // attaching the outline may have created chapters in the plan and moved its notes
+                    session.Data.ShotList = staged.ShotList;
+                    session.Data.Captures = staged.Captures;
+                    session.MarkAllDirty();
                     break;
             }
             return report;

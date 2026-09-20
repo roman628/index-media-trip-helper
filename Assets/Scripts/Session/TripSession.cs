@@ -19,7 +19,7 @@ namespace MediaTrip.Session
     /// dirty; the autosaver writes them shortly after. Nothing here ever edits a planned
     /// shot-list entry to record a capture.
     /// </summary>
-    public sealed class TripSession : IDisposable
+    public sealed partial class TripSession : IDisposable
     {
         public TripData Data { get; }
         public Autosaver Autosaver { get; }
@@ -121,6 +121,9 @@ namespace MediaTrip.Session
                 else _dirtyOutlineBooks.Add(outlineBookId);
             }
             else _dirtyDocs.Add(kind);
+            // Chapters belong to the shot list; every outline echoes them and numbers its sections from them.
+            if (kind == DocumentKind.ShotList || kind == DocumentKind.Outline)
+                foreach (var bookId in TripNormalizer.SyncOutlines(Data).OutlinesChanged) _dirtyOutlineBooks.Add(bookId);
             Invalidate();
             Autosaver.MarkDirty();
         }
@@ -130,6 +133,7 @@ namespace MediaTrip.Session
             _dirtyDocs.Add(DocumentKind.Trip);
             _dirtyDocs.Add(DocumentKind.ShotList);
             _dirtyDocs.Add(DocumentKind.Captures);
+            TripNormalizer.SyncOutlines(Data);
             foreach (var k in Data.Outlines.Keys) _dirtyOutlineBooks.Add(k);
             Invalidate();
             Autosaver.MarkDirty();
@@ -362,23 +366,6 @@ namespace MediaTrip.Session
             MarkDirty(DocumentKind.Captures);
         }
 
-        public string SectionNoteText(string sectionId) =>
-            Data.Captures.SectionNotes.FirstOrDefault(n => n.SectionId == sectionId)?.Text ?? "";
-
-        /// <summary>Set the field note of an outline section; empty text removes it.</summary>
-        public void SetSectionNote(string bookId, string sectionId, string text)
-        {
-            var notes = Data.Captures.SectionNotes;
-            var n = notes.FirstOrDefault(x => x.SectionId == sectionId);
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                if (n != null) notes.Remove(n);
-            }
-            else if (n == null) notes.Add(new SectionNote { BookId = bookId, SectionId = sectionId, Text = text });
-            else { n.Text = text; n.BookId = bookId; }
-            MarkDirty(DocumentKind.Captures);
-        }
-
         public void UpdateAmendment(string amendmentId, Action<Amendment> edit)
         {
             var a = Data.FindAmendment(amendmentId) ?? throw new KeyNotFoundException("No amendment " + amendmentId);
@@ -435,6 +422,21 @@ namespace MediaTrip.Session
                 }
                 case AmendmentType.Add:
                 {
+                    if (a.NewMedia == MediaKind.Photo)
+                    {
+                        // The photo leaves the working copy; what was logged of it stays, under its description.
+                        foreach (var id in results)
+                        {
+                            foreach (var c in Data.Captures.Captures)
+                                foreach (var cp in c.Photos ?? new List<CapturePhoto>())
+                                    if (cp.PhotoId == id) { cp.PhotoId = null; if (string.IsNullOrEmpty(cp.Text)) cp.Text = a.NewTitle; }
+                            foreach (var pc in Data.Captures.PhotoCaptures.Where(p => p.PhotoId == id)) { pc.PhotoId = null; if (string.IsNullOrEmpty(pc.Text)) pc.Text = a.NewTitle; }
+                            Data.Captures.HeroAssignments.RemoveAll(h => h.PhotoId == id);
+                            Data.Captures.OutlineAssignments.RemoveAll(o => o.MediaRef?.Kind == MediaRefKind.PlannedPhoto && o.MediaRef.Id == id);
+                            Data.Captures.Amendments.RemoveAll(x => x != a && (x.Targets?.Contains(id) ?? false));
+                        }
+                        break;
+                    }
                     foreach (var c in Data.Captures.Captures.Where(c => c.PlanVideoId != null && results.Contains(c.PlanVideoId)).ToList())
                         RemoveCapture(c.Id);
                     break;
@@ -671,9 +673,7 @@ namespace MediaTrip.Session
             if (Data.Outlines.TryGetValue(bookId, out var existing)) return existing;
             var book = Data.FindBook(bookId);
             var outline = new OutlineDocument { TripId = Data.TripId, BookId = bookId, BookTitle = book?.Name };
-            foreach (var ch in Data.ChaptersOf(bookId))
-                outline.Chapters.Add(new OutlineChapter { Id = ch.Id, Number = ch.Number, Name = ch.Name, Notes = "" });
-            Data.Outlines[bookId] = outline;
+            Data.Outlines[bookId] = outline;   // its chapters are the book's plan chapters, attached on the next line's sync
             MarkDirty(DocumentKind.Outline, bookId);
             return outline;
         }

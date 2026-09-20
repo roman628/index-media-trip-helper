@@ -91,6 +91,8 @@ namespace MediaTrip.Authoring
                 if (h.ChapterId == id) Add("heroAssignment", h.Id, "chapterId", h.Text);
                 if (h.PhotoCaptureId == id) Add("heroAssignment", h.Id, "photoCaptureId", h.Text);
             }
+            foreach (var n in d.Captures.Notes ?? new List<PlaceNote>())
+                if (!string.IsNullOrWhiteSpace(n.Text) && (n.ChapterId == id || n.SectionId == id)) Add("note", n.SectionId ?? n.ChapterId, n.SectionId == id ? "sectionId" : "chapterId", n.Text);
             foreach (var v in d.ShotList.Videos)
                 if ((v.SmeIds ?? new List<string>()).Contains(id)) Add("video", v.Id, "smeIds", v.Title);
             foreach (var b in d.Trip.Books)

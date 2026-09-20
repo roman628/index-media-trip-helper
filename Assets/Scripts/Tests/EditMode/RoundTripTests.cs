@@ -136,7 +136,7 @@ namespace MediaTrip.Tests
         [Test]
         public void UnknownProperties_SurviveRoundTrip()
         {
-            var json = @"{ ""schemaVersion"": 1, ""tripId"": ""t"", ""futureField"": { ""x"": [1, 2] },
+            var json = @"{ ""schemaVersion"": 2, ""tripId"": ""t"", ""futureField"": { ""x"": [1, 2] },
                            ""videos"": [ { ""id"": ""v1"", ""number"": 1, ""title"": ""T"", ""extraOnVideo"": ""keep me"",
                                           ""notes"": [ { ""id"": ""n1"", ""text"": ""hi"", ""children"": [], ""nodeExtra"": true } ] } ] }";
             var doc = TripLoader.LoadDocumentFromJson<ShotListDocument>(json, DocumentKind.ShotList);

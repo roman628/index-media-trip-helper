@@ -5,8 +5,13 @@ using Newtonsoft.Json.Linq;
 
 namespace MediaTrip.Model
 {
-    public enum AmendmentType { Rename, Combine, Split, Drop, Move, Add }
-    public enum MediaRefKind { Capture, PhotoCapture, PlannedPhoto }
+    public enum AmendmentType { Rename, Combine, Split, Drop, Move, Add, Revise }
+    /// <summary>What an "add" amendment creates. Absent means a video.</summary>
+    public enum MediaKind { Video, Photo }
+    /// <summary>A correction fixes a transcription mistake in the original; a change is a real change made during the trip.</summary>
+    public enum ChangeRecordKind { Correction, Change }
+    /// <summary>What an outline placement points at: something shot (a capture or photo capture), or something on the working shot list that may not be shot yet.</summary>
+    public enum MediaRefKind { Capture, PhotoCapture, PlannedPhoto, PlannedVideo }
     public enum PhotoCaptureSection { UnderVideo, AdditionalPhotography }
     public enum AssignmentSource { Auto, Manual }
 
@@ -19,14 +24,24 @@ namespace MediaTrip.Model
         public List<OutlineAssignment> OutlineAssignments { get; set; } = new List<OutlineAssignment>();
         /// <summary>Cover and chapter-hero slots filled in the field. The planned hero stays in the shot list untouched.</summary>
         public List<HeroAssignment> HeroAssignments { get; set; } = new List<HeroAssignment>();
-        /// <summary>Notes written in the field against an outline section. The outline text itself is never edited to hold them.</summary>
-        public List<SectionNote> SectionNotes { get; set; } = new List<SectionNote>();
+        /// <summary>Notes hung off a chapter (sectionId null) or off one of its outline sections.</summary>
+        public List<PlaceNote> Notes { get; set; } = new List<PlaceNote>();
+        /// <summary>
+        /// The light log: corrections to the original (a transcription fix: field, before, after)
+        /// and structural changes that are not amendments (a chapter renamed or removed).
+        /// </summary>
+        public List<ChangeRecord> Edits { get; set; } = new List<ChangeRecord>();
+        /// <summary>Read only, for files written before notes were unified; folded into <see cref="Notes"/> on load.</summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public List<SectionNote> SectionNotes { get; set; }
     }
 
     /// <summary>
     /// A change to the plan. Combine/split create new item IDs in <see cref="Results"/> and every
     /// ID in <see cref="Targets"/> becomes superseded, resolving to those results.
     /// Rename/move keep the same ID in both lists. Drop has no results. Add has no targets.
+    /// Revise carries field-level before/after values for content edited in the working copy.
+    /// Rename, move and drop may target a master-list photo as well as a video.
     /// </summary>
     public class Amendment
     {
@@ -42,6 +57,42 @@ namespace MediaTrip.Model
         public List<string> NewTitles { get; set; }
         public string NewBookId { get; set; }
         public string NewChapterId { get; set; }
+        /// <summary>Add only: what is created. Absent means a video.</summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public MediaKind? NewMedia { get; set; }
+        /// <summary>Revise only: the fields that changed.</summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public List<FieldChange> Changes { get; set; }
+        [JsonExtensionData] public IDictionary<string, JToken> Extra { get; set; }
+    }
+
+    /// <summary>One field of a revise amendment or a change record. Values are JSON: text, a list of ids, or a node tree.</summary>
+    public class FieldChange
+    {
+        public const string Title = "title", Scene = "sceneDescription", SmeIds = "smeIds", SmeText = "smeText",
+            Notes = "notes", PhotoRefs = "photoRefs", Description = "description", Name = "name", Number = "number",
+            Chapter = "chapterId", HeroType = "heroType", Deleted = "deleted", Added = "added", Order = "order";
+
+        public string Field { get; set; }
+        public JToken Before { get; set; }
+        public JToken After { get; set; }
+        [JsonExtensionData] public IDictionary<string, JToken> Extra { get; set; }
+    }
+
+    /// <summary>An entry of the light log (see <see cref="CapturesDocument.Edits"/>).</summary>
+    public class ChangeRecord
+    {
+        public string Id { get; set; }
+        public string At { get; set; }
+        public ChangeRecordKind Kind { get; set; }
+        /// <summary>"video", "photo", "chapter", "section".</summary>
+        public string Entity { get; set; }
+        public string EntityId { get; set; }
+        /// <summary>What the thing was called when the record was made, so the log still reads after a delete.</summary>
+        public string Label { get; set; }
+        public string Field { get; set; }
+        public JToken Before { get; set; }
+        public JToken After { get; set; }
         [JsonExtensionData] public IDictionary<string, JToken> Extra { get; set; }
     }
 
@@ -172,6 +223,17 @@ namespace MediaTrip.Model
         [JsonExtensionData] public IDictionary<string, JToken> Extra { get; set; }
     }
 
+    /// <summary>Notes on a chapter as a whole (sectionId null) or on one outline section. Covers and Outlines edit the same chapter-level note.</summary>
+    public class PlaceNote
+    {
+        public string BookId { get; set; }
+        public string ChapterId { get; set; }
+        public string SectionId { get; set; }
+        public string Text { get; set; }
+        [JsonExtensionData] public IDictionary<string, JToken> Extra { get; set; }
+    }
+
+    /// <summary>Legacy shape of a section note; see <see cref="PlaceNote"/>.</summary>
     public class SectionNote
     {
         public string BookId { get; set; }

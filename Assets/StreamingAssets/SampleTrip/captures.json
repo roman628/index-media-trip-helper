@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "tripId": "trip-sample-0001",
 
   "amendments": [
@@ -125,5 +125,10 @@
     { "id": "oa-003", "mediaRef": { "kind": "photoCapture", "id": "pc-001" },
       "bookId": "b-001", "chapterId": "c-101", "sectionId": "s-1-2", "nodeId": null,
       "source": "auto", "confidence": 0.64, "confirmed": false }
+  ],
+
+  "notes": [
+    { "bookId": "b-001", "chapterId": "c-101", "sectionId": null,
+      "text": "Consider opening the chapter on the gallery wide shot." }
   ]
 }

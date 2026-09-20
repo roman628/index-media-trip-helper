@@ -134,11 +134,80 @@ namespace MediaTrip.Authoring
             foreach (var p in photos) blocked.AddRange(ReferenceFinder.Find(D, p.Id));
             if (blocked.Count > 0) throw new PlanEditBlockedException(id, blocked, "Use drop amendments for items already shot.", "Removing chapter contents");
 
+            var sections = D.FindOutline(c.BookId)?.Chapters?.FirstOrDefault(x => x.Id == id)?.Sections?.Count ?? 0;
+            if (!cascade && sections > 0)
+                throw new InvalidOperationException($"Chapter '{c.Name}' has {sections} outline sections. Pass cascade: true to remove them too.");
+
             foreach (var v in videos) D.ShotList.Videos.Remove(v);
             foreach (var p in photos) RemovePhotoInternal(p);
+            var sectionIds = DetachOutlineChapter(c);
+            D.Captures.Notes.RemoveAll(n => n.ChapterId == id || (n.SectionId != null && sectionIds.Contains(n.SectionId)));
             D.ShotList.Chapters.Remove(c);
             StripAssociations(null, c.Id);
+            _s.MarkDirty(DocumentKind.Outline, c.BookId);
             Finish();
+        }
+
+        /// <summary>
+        /// Remove a chapter whatever points at it, leaving nothing orphaned. Its planned videos
+        /// and photos move to <paramref name="moveContentsTo"/> (a chapter hero stays a hero only
+        /// if that chapter has none); with no target the videos are removed as
+        /// <see cref="RemoveVideo(string, bool)"/> detaches them and the photos stay in the book
+        /// without a chapter. Captures and added items that named the chapter follow the move.
+        /// The chapter's outline sections, its notes, the media placed in it and its hero
+        /// assignments go with it; the media itself stays in the summary, unplaced.
+        /// </summary>
+        public void RemoveChapter(string id, string moveContentsTo)
+        {
+            var c = RequireChapter(id);
+            Chapter target = null;
+            if (moveContentsTo != null)
+            {
+                target = RequireChapter(moveContentsTo);
+                if (target.Id == c.Id) throw new ArgumentException("A chapter cannot take its own contents.");
+            }
+
+            foreach (var v in VideosOfChapter(id))
+            {
+                if (target == null) { DetachPlanItem(v.Id); D.ShotList.Videos.Remove(v); continue; }
+                D.ShotList.Videos.Remove(v);
+                v.ChapterId = target.Id; v.BookId = target.BookId;
+                Insert(D.ShotList.Videos, x => x.ChapterId == target.Id, v, null);
+            }
+            foreach (var p in D.ShotList.Photos.Where(p => p.ChapterId == id))
+            {
+                bool targetHasHero = target != null && D.ShotList.Photos.Any(o => o != p && o.ChapterId == target.Id && o.HeroType == HeroType.ChapterHero);
+                if (p.HeroType == HeroType.ChapterHero && (target == null || targetHasHero)) p.HeroType = HeroType.None;
+                p.ChapterId = target?.Id;
+                if (target != null) p.BookId = target.BookId;
+            }
+            StripAssociations(null, id);
+
+            foreach (var cap in D.Captures.Captures.Where(x => x.ChapterId == id)) { cap.ChapterId = target?.Id; if (target != null) cap.BookId = target.BookId; }
+            foreach (var am in D.Captures.Amendments.Where(x => x.NewChapterId == id)) { am.NewChapterId = target?.Id; if (target != null) am.NewBookId = target.BookId; }
+
+            // The chapter leaves the plan and the outline together, before anything is marked
+            // dirty: an outline chapter the plan does not know would be taken for a new chapter.
+            var sectionIds = DetachOutlineChapter(c);
+            D.Captures.OutlineAssignments.RemoveAll(a => a.ChapterId == id || (a.SectionId != null && sectionIds.Contains(a.SectionId)));
+            D.Captures.Notes.RemoveAll(n => n.ChapterId == id || (n.SectionId != null && sectionIds.Contains(n.SectionId)));
+            D.Captures.HeroAssignments.RemoveAll(h => h.ChapterId == id);
+            D.ShotList.Chapters.Remove(c);
+            _s.MarkDirty(DocumentKind.Captures);
+            _s.MarkDirty(DocumentKind.Outline, c.BookId);
+            Finish();
+        }
+
+        /// <summary>Take the chapter's entry out of its book's outline. Returns the ids of the sections that went with it.</summary>
+        private HashSet<string> DetachOutlineChapter(Chapter c)
+        {
+            var ids = new HashSet<string>();
+            if (!D.Outlines.TryGetValue(c.BookId, out var outline) || outline?.Chapters == null) return ids;
+            var oc = outline.Chapters.FirstOrDefault(x => x.Id == c.Id);
+            if (oc == null) return ids;
+            foreach (var sec in oc.Sections ?? new List<OutlineSection>()) ids.Add(sec.Id);
+            outline.Chapters.Remove(oc);
+            return ids;
         }
 
         public void ReorderChapter(string id, int newIndex)
@@ -169,7 +238,14 @@ namespace MediaTrip.Authoring
         /// book and chapter are restored after the edit. A title change on a referenced video is
         /// refused: use <see cref="TripSession.Rename"/> (a rename amendment) instead.
         /// </summary>
-        public void UpdateVideo(string id, Action<Video> edit)
+        public void UpdateVideo(string id, Action<Video> edit) => UpdateVideo(id, edit, false);
+
+        /// <summary>
+        /// As <see cref="UpdateVideo(string, Action{Video})"/>, but with <paramref name="force"/> a
+        /// referenced video may be retitled. That is a correction of the original (the paper says
+        /// one thing, the app another), which the caller records; it is not a plan change.
+        /// </summary>
+        public void UpdateVideo(string id, Action<Video> edit, bool force)
         {
             var v = RequireVideo(id);
             var keepId = v.Id; var keepNumber = v.Number; var keepBook = v.BookId; var keepChapter = v.ChapterId; var keepTitle = v.Title;
@@ -177,7 +253,7 @@ namespace MediaTrip.Authoring
             v.Id = keepId; v.Number = keepNumber; v.BookId = keepBook; v.ChapterId = keepChapter;
             if (v.Title != keepTitle)
             {
-                var refs = ReferenceFinder.Find(D, id);
+                var refs = force ? new List<PlanReference>() : ReferenceFinder.Find(D, id);
                 if (refs.Count > 0)
                 {
                     v.Title = keepTitle;
@@ -188,12 +264,21 @@ namespace MediaTrip.Authoring
         }
 
         public void SetVideoTitle(string id, string title) => UpdateVideo(id, v => v.Title = title);
+        public void SetVideoTitle(string id, string title, bool force) => UpdateVideo(id, v => v.Title = title, force);
 
         /// <summary>Remove a planned video. Blocked if any capture or amendment references it (use a drop amendment).</summary>
-        public void RemoveVideo(string id)
+        public void RemoveVideo(string id) => RemoveVideo(id, false);
+
+        /// <summary>
+        /// With <paramref name="detach"/> a referenced video is removed anyway and nothing is
+        /// orphaned: captures of it stay in the summary as unplanned captures (they keep their
+        /// title and the number they were shot against), and amendments stop naming it.
+        /// </summary>
+        public void RemoveVideo(string id, bool detach)
         {
             var v = RequireVideo(id);
-            ReferenceFinder.ThrowIfReferenced(D, id, "Removing video", "Use a drop amendment (TripSession.Drop) for a video that was planned on paper.");
+            if (detach) DetachPlanItem(id);
+            else ReferenceFinder.ThrowIfReferenced(D, id, "Removing video", "Use a drop amendment (TripSession.Drop) for a video that was planned on paper.");
             D.ShotList.Videos.Remove(v);
             Finish();
         }
@@ -315,10 +400,18 @@ namespace MediaTrip.Authoring
         }
 
         /// <summary>Remove a master-list photo. Blocked if a capture, photo capture, amendment or assignment references it. Video photoRefs to it are cleaned up.</summary>
-        public void RemovePhoto(string id)
+        public void RemovePhoto(string id) => RemovePhoto(id, false);
+
+        /// <summary>
+        /// With <paramref name="detach"/> a referenced photo is removed anyway: what was logged
+        /// as a capture of it stays in the summary under its description, hero assignments of it
+        /// are removed, and amendments stop naming it.
+        /// </summary>
+        public void RemovePhoto(string id, bool detach)
         {
             var p = RequirePhoto(id);
-            ReferenceFinder.ThrowIfReferenced(D, id, "Removing photo", "Use a drop amendment for a photo that was on the printed list.");
+            if (detach) DetachPhoto(p);
+            else ReferenceFinder.ThrowIfReferenced(D, id, "Removing photo", "Use a drop amendment for a photo that was on the printed list.");
             RemovePhotoInternal(p);
             Finish();
         }
@@ -430,6 +523,32 @@ namespace MediaTrip.Authoring
                 foreach (var p in group) p.Order = n++;
             }
             D.ShotList.Photos = photos;
+        }
+
+        /// <summary>Take a plan item id out of captures and amendments without deleting either.</summary>
+        internal void DetachPlanItem(string id)
+        {
+            foreach (var c in D.Captures.Captures.Where(c => c.PlanVideoId == id)) c.PlanVideoId = null;
+            foreach (var am in D.Captures.Amendments.ToList())
+            {
+                bool named = (am.Targets?.Remove(id) ?? false) | (am.Results?.Remove(id) ?? false);
+                if (!named) continue;
+                var targets = am.Targets?.Count ?? 0; var results = am.Results?.Count ?? 0;
+                bool empty = am.Type == AmendmentType.Add ? results == 0 : targets == 0;
+                if (empty) D.Captures.Amendments.Remove(am);
+            }
+            D.Captures.OutlineAssignments.RemoveAll(a => (a.MediaRef?.Kind == MediaRefKind.PlannedPhoto || a.MediaRef?.Kind == MediaRefKind.PlannedVideo) && a.MediaRef.Id == id);
+            _s.MarkDirty(DocumentKind.Captures);
+        }
+
+        internal void DetachPhoto(Photo p)
+        {
+            foreach (var c in D.Captures.Captures)
+                foreach (var cp in c.Photos ?? new List<CapturePhoto>())
+                    if (cp.PhotoId == p.Id) { cp.PhotoId = null; if (string.IsNullOrEmpty(cp.Text)) cp.Text = p.Description; }
+            foreach (var pc in D.Captures.PhotoCaptures.Where(x => x.PhotoId == p.Id)) { pc.PhotoId = null; if (string.IsNullOrEmpty(pc.Text)) pc.Text = p.Description; }
+            D.Captures.HeroAssignments.RemoveAll(h => h.PhotoId == p.Id);
+            DetachPlanItem(p.Id);
         }
 
         private void Finish(bool booksChanged = false)
