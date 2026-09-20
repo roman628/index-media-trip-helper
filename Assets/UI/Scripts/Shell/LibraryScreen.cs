@@ -21,7 +21,7 @@ namespace MediaTrip.UI.Shell
             hdr.Add(title);
             var trips = TripLibrary.ListTrips();
             if (trips.Count > 0) hdr.Add(U.Btn(st.Edit ? "Done" : "Edit", app.ToggleEdit, "sm mr8" + (st.Edit ? " pri" : "")));
-            hdr.Add(AppShell.SunButton(app));
+            hdr.Add(U.Btn("Theme", () => ThemeSheet.Open(app), "sm"));
             root.Add(hdr);
 
             var list = U.Scroll().Named("library").Cls("docpad");

@@ -78,6 +78,33 @@ namespace MediaTrip.UI
             return sv;
         }
 
+        /// <summary>A small quiet tag after a title: "new", "revised", "was 4".</summary>
+        public static VisualElement Tag(string text, string classes = "")
+        {
+            var v = new VisualElement().Cls("tag " + classes);
+            v.Add(Text(Esc(text)));
+            return v;
+        }
+
+        /// <summary>
+        /// A name that may be long. Collapsed it is one line with an ellipsis; expanded (the row
+        /// it belongs to was tapped open) it wraps and shows in full.
+        /// </summary>
+        public static Label Name(string text, bool expanded, string classes = "")
+        {
+            var l = Text(text, classes + (expanded ? " wraptext" : " ellipsis"));
+            l.style.flexShrink = 1;
+            return l;
+        }
+
+        /// <summary>The expand / collapse arrow of a row that opens in place.</summary>
+        public static Glyph Chevron(bool open, float size = 18)
+        {
+            var g = new Glyph(open ? GlyphKind.ChevronDown : GlyphKind.ChevronRight, size);
+            g.AddToClassList("chev");
+            return g;
+        }
+
         /// <summary>A key / value line of a read-only document.</summary>
         public static VisualElement KV(string key, string value)
         {
@@ -283,7 +310,7 @@ namespace MediaTrip.UI
             b.Cls("tog plain").On(on);
             b.Add(Text(text));
             var knob = new VisualElement().Cls("knob");
-            knob.Add(new VisualElement().Cls("dot"));
+            knob.Add(new VisualElement().Cls("thumb"));   // not "dot": that class is the issue marker and carries its margin
             b.Add(knob);
             return b;
         }

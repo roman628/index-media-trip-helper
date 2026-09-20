@@ -144,7 +144,7 @@ namespace MediaTrip.UI.Tests
             b.Reason = "line down";
             b.Apply(s);
             Assert.AreEqual(PlanItemStatus.Dropped, s.Plan.FindItem("v-004").Status);
-            Assert.IsNull(s.Data.FindCapture("cap-003"));
+            Assert.IsNotNull(s.Data.FindCapture("cap-003"), "a plan change never deletes a capture");
         }
     }
 
@@ -245,7 +245,7 @@ namespace MediaTrip.UI.Tests
             Assert.AreEqual("d-002", Fmt.TodayOrLast(s.Data.Trip, new System.DateTime(2026, 9, 16)).Id);
             Assert.AreEqual("d-002", Fmt.TodayOrLast(s.Data.Trip, new System.DateTime(2027, 1, 1)).Id, "falls back to the last day");
             Assert.AreEqual("Tue, Sep 15", U.FmtDate("2026-09-15"));
-            Assert.AreEqual("Book 2 Ch.1", Fmt.BookChapter(s.Data, "b-002", "c-201"));
+            Assert.AreEqual("Lockout / Tagout · Ch.1", Fmt.BookChapter(s.Data, "b-002", "c-201"));
         }
 
         [Test]

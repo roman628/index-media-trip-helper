@@ -51,7 +51,14 @@ namespace MediaTrip.UI
         {
             // Tab inside an outliner row is indent/outdent, not focus navigation.
             var tf = FocusedField(app.Root);
-            if (tf == null || !(tf.name ?? "").StartsWith("node:")) return;
+            var n = tf?.name ?? "";
+            if (n.StartsWith("os:") && e.direction == NavigationMoveEvent.Direction.Next && app.NameKeyAction != null)
+            {
+                // Tab in a section name goes into its bullets rather than to the next control.
+                if (app.NameKeyAction(n, "tab")) Consume(e);
+                return;
+            }
+            if (tf == null || !n.StartsWith("node:")) return;
             if (e.direction == NavigationMoveEvent.Direction.Next || e.direction == NavigationMoveEvent.Direction.Previous)
             {
                 if (app.AccessoryAction != null && app.AccessoryAction(e.direction == NavigationMoveEvent.Direction.Next ? "in" : "out"))
@@ -82,6 +89,28 @@ namespace MediaTrip.UI
                 app.Nav(Screens.Tabs[e.keyCode - KeyCode.Alpha1]);
                 Consume(e);
                 return;
+            }
+
+            if (meta && app.State.Screen == Screen.ShotList && (e.keyCode == KeyCode.RightBracket || e.keyCode == KeyCode.LeftBracket))
+            {
+                MediaTrip.UI.Docs.ShotListScreen.ExpandAll(app, e.keyCode == KeyCode.RightBracket);
+                Consume(e);
+                return;
+            }
+
+            // ---- chapter and section names in the outline editor: the whole outline can be typed from the keyboard
+            var fieldName = tf?.name ?? "";
+            if (app.NameKeyAction != null && (fieldName.StartsWith("oc:") || fieldName.StartsWith("os:")))
+            {
+                string nameAct = null;
+                if (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter) nameAct = meta ? "chapter" : "enter";
+                else if (e.keyCode == KeyCode.Tab && !e.shiftKey) nameAct = "tab";
+                else if (e.altKey && e.keyCode == KeyCode.UpArrow) nameAct = "moveup";
+                else if (e.altKey && e.keyCode == KeyCode.DownArrow) nameAct = "movedown";
+                else if (e.keyCode == KeyCode.UpArrow) nameAct = "prev";
+                else if (e.keyCode == KeyCode.DownArrow) nameAct = "next";
+                else if (e.keyCode == KeyCode.Backspace && string.IsNullOrEmpty(tf.value)) nameAct = "del";
+                if (nameAct != null && app.NameKeyAction(fieldName, nameAct)) { Consume(e); return; }
             }
 
             // ---- the outliner's structural keys

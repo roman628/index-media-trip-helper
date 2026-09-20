@@ -131,9 +131,14 @@ namespace MediaTrip.UI.Docs
                 case "dates":
                     if (E)
                     {
-                        sec.Add(U.Row(
-                            F("trip:arrive", t.Dates.Arrive, "Arrive · yyyy-mm-dd", (x, v) => x.Dates.Arrive = v, 190),
-                            F("trip:depart", t.Dates.Depart, "Depart · yyyy-mm-dd", (x, v) => x.Dates.Depart = v, 190)).Cls("wrap"));
+                        // Arrive and depart are the travel days. Once both are in, the shooting days
+                        // between them fill themselves in when the field is left.
+                        var arrive = F("trip:arrive", t.Dates.Arrive, "Arrive (travel day) · yyyy-mm-dd", (x, v) => x.Dates.Arrive = v, 230);
+                        var depart = F("trip:depart", t.Dates.Depart, "Depart (travel day) · yyyy-mm-dd", (x, v) => x.Dates.Depart = v, 230);
+                        foreach (var f in new[] { arrive, depart })
+                            f.RegisterCallback<FocusOutEvent>(_ => { if (TripDays.AutoFill(s)) app.Toast(U.Plural(t.Days.Count, "day") + " between the travel days"); });
+                        sec.Add(U.Row(arrive, depart).Cls("wrap"));
+                        if (t.Days.Count > 0) sec.Add(U.Lbl("Shooting days").Mt(6));
                         foreach (var day in t.Days)
                         {
                             var did = day.Id;
@@ -276,25 +281,40 @@ namespace MediaTrip.UI.Docs
                     var nc = n;
                     members.Add(U.ChipX(U.Esc(n), () => s.PlanEditor.UpdateBook(bid, x => x.Team.MemberNames.Remove(nc))));
                 }
-                var q = U.Input("", "+ team member", null, false, "h44").W(190);
-                q.name = "member:" + bid;
-                q.style.marginBottom = 8;
-                app.ClosePopupWhenBlurred(q);
-                q.RegisterValueChangedCallback(e =>
-                {
-                    var text = e.newValue;
-                    if (string.IsNullOrWhiteSpace(text)) { app.ClosePopup(); return; }
-                    var box = new VisualElement().Cls("sugg");
-                    foreach (var m in s.Search.SuggestNames(text, NameScope.Crew, 4))
-                    {
-                        var item = m.Item;
-                        box.Add(U.Tap(() => AddMember(app, bid, item.Name, item.Person), "sugg-row", U.Text(U.Esc(item.Name), "bold").Cls("grow"), U.Sub(U.Esc(item.Title ?? ""))));
-                    }
-                    box.Add(U.Tap(() => AddMember(app, bid, text.Trim(), null), "sugg-row", U.Text("“" + U.Esc(text.Trim()) + "”").Cls("grow")));
-                    app.ShowPopup(q, box, 340);
-                });
-                members.Add(q);
                 col.Add(members);
+
+                // One person at a time: first name, last name, Add (or Enter). Each becomes a bubble.
+                var T = app.State.Trip;
+                if (T.MemberBook != bid)
+                    col.Add(U.AddBtn("Team member", () => { T.MemberBook = bid; T.MemberFirst = ""; T.MemberLast = ""; app.RenderKeepFocus("member:" + bid + ":first"); }));
+                else
+                {
+                    void Add()
+                    {
+                        var full = (T.MemberFirst.Trim() + " " + T.MemberLast.Trim()).Trim();
+                        if (full.Length == 0) return;
+                        AddMember(app, bid, full, s.Search.FindPersonByName(full));
+                        T.MemberFirst = ""; T.MemberLast = "";
+                        app.RenderKeepFocus("member:" + bid + ":first");
+                    }
+                    var first = PickerField.Build(app, "member:" + bid + ":first", T.MemberFirst, "First name", v => T.MemberFirst = v, text =>
+                    {
+                        var rows = new List<PickerField.Row>();
+                        foreach (var m in s.Search.SuggestNames(text, NameScope.Crew, 4))
+                        {
+                            var item = m.Item;
+                            if (names.Contains(item.Name)) continue;
+                            rows.Add(new PickerField.Row { Title = item.Name, Sub = item.Title, Pick = () => { AddMember(app, bid, item.Name, item.Person); T.MemberFirst = ""; T.MemberLast = ""; app.RenderKeepFocus("member:" + bid + ":first"); } });
+                        }
+                        return rows;
+                    }, "h44");
+                    first.W(150); first.style.marginRight = 6;
+                    var last = U.Input(T.MemberLast, "Last name", v => T.MemberLast = v, false, "h44").W(170);
+                    last.name = "member:" + bid + ":last";
+                    last.style.marginRight = 6;
+                    last.RegisterCallback<KeyDownEvent>(e => { if (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter) { e.StopPropagation(); Add(); } }, TrickleDown.TrickleDown);
+                    col.Add(U.Row(first, last, U.Btn("Add", Add, "sm pri"), U.Btn("Done", () => { T.MemberBook = null; app.State.Focus = null; app.Render(); }, "sm ghost ml8")).Cls("wrap"));
+                }
             }
             row.Add(col);
             return row;
@@ -369,11 +389,42 @@ namespace MediaTrip.UI.Docs
                 }
             }
             if (!E && t.People.Count == 0) sec.Add(U.Sub("Nobody yet."));
-            if (E) sec.Add(U.AddBtn("Person", () =>
+            if (!E) return;
+
+            // A person needs a name before they exist, so a new one is typed into a row of its
+            // own and only joins the list when Add (or Enter) is pressed.
+            var T = app.State.Trip;
+            if (T.NewPerson == null)
             {
-                var p = s.People.Add("", "", Org.Client, new[] { PersonRole.Sme });
-                app.RenderKeepFocus("person:" + p.Id + ":first");
-            }).Mt(6));
+                sec.Add(U.AddBtn("Person", () => { T.NewPerson = new AppState.PersonDraft(); app.RenderKeepFocus("newperson:first"); }).Mt(6));
+                return;
+            }
+            var np = T.NewPerson;
+            void Commit()
+            {
+                if (string.IsNullOrWhiteSpace(np.First) && string.IsNullOrWhiteSpace(np.Last)) { app.Toast("Type a name first"); return; }
+                var role = DefaultRole(np.Org);
+                s.People.Add(np.First.Trim(), np.Last.Trim(), np.Org, role != null ? new[] { role.Value } : new PersonRole[0], np.Title.Trim());
+                T.NewPerson = new AppState.PersonDraft { Org = np.Org };
+                app.RenderKeepFocus("newperson:first");
+            }
+            TextField NF(string field, string value, string ph, Action<string> set, float width)
+            {
+                var tf = U.Input(value, ph, set, false, "h44");
+                tf.name = "newperson:" + field;
+                if (width > 0) tf.W(width); else { tf.Cls("grow"); tf.style.minWidth = 140; }
+                tf.style.marginRight = 6; tf.style.marginBottom = 6;
+                tf.RegisterCallback<KeyDownEvent>(e => { if (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter) { e.StopPropagation(); Commit(); } }, TrickleDown.TrickleDown);
+                return tf;
+            }
+            sec.Add(U.Eyebrow("New person").Mt(12).Mb(4));
+            var draft = U.Row(NF("first", np.First, "First", v => np.First = v, 130), NF("last", np.Last, "Last", v => np.Last = v, 150), NF("title", np.Title, "Title", v => np.Title = v, 0)).Cls("wrap");
+            var orgNext = Orgs[(Array.FindIndex(Orgs, o => o.org == np.Org) + 1) % Orgs.Length];
+            var chip = U.Chip(Orgs.First(o => o.org == np.Org).label, false, () => { np.Org = orgNext.org; app.RenderKeepFocus(app.FocusedFieldName); });
+            chip.style.marginBottom = 6;
+            draft.Add(chip);
+            sec.Add(draft);
+            sec.Add(U.Row(U.Btn("Add", Commit, "sm pri"), U.Btn("Done", () => { T.NewPerson = null; app.State.Focus = null; app.Render(); }, "sm ghost ml8")));
         }
 
         /// <summary>Tapping the organisation chip moves the person to the next group. A role that only came from the old group follows.</summary>

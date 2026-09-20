@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using MediaTrip.Persistence;
 using MediaTrip.UI.ViewModels;
 
@@ -40,7 +41,10 @@ namespace MediaTrip.UI
             }
         }
 
-        /// <summary>Documents with an edit state. Covers and Summary are always live.</summary>
+        /// <summary>
+        /// Documents with an edit state. Edit changes the document; the normal state annotates
+        /// it. Covers and Summary are annotation only, so they have no Edit.
+        /// </summary>
         public static bool HasEdit(Screen s) => s == Screen.Trip || s == Screen.ShotList || s == Screen.Outlines || s == Screen.Library;
     }
 
@@ -51,6 +55,7 @@ namespace MediaTrip.UI
         /// <summary>The header's Edit toggle. Cleared whenever the screen changes.</summary>
         public bool Edit;
         public bool Menu;
+        public bool Shortcuts;
         /// <summary>Search text; null when the search sheet is closed.</summary>
         public string Search;
         /// <summary>Name of the TextField to refocus after a re-render (null = none).</summary>
@@ -71,27 +76,43 @@ namespace MediaTrip.UI
             public string Section = "identity";
             /// <summary>Section to scroll to after the next render.</summary>
             public string ScrollTo;
+            /// <summary>The person being typed in before they have a name; null when no row is open.</summary>
+            public PersonDraft NewPerson;
+            /// <summary>The book whose "add team member" row is open.</summary>
+            public string MemberBook;
+            public string MemberFirst = "", MemberLast = "";
+        }
+
+        public sealed class PersonDraft
+        {
+            public string First = "", Last = "", Title = "";
+            public Model.Org Org = Model.Org.Client;
         }
 
         public sealed class ShotListState
         {
             public ShotListMode View = ShotListMode.Working;
             public bool HideDone;
-            /// <summary>Plan item whose detail is open (side panel in landscape, sheet otherwise).</summary>
-            public string VideoId;
-            /// <summary>Master-list photo being edited (edit state only).</summary>
-            public string PhotoId;
+            /// <summary>Videos (and, in edit, photos) whose detail is expanded in place.</summary>
+            public HashSet<string> Expanded = new HashSet<string>();
+            /// <summary>Row to scroll to after the next render (opened from search, Summary, Changes).</summary>
+            public string ScrollTo;
             public AmendDraft Amend;
-            public string SmeQ = "";
+            /// <summary>True once "Fix the original" was chosen for this visit, so the question is asked once.</summary>
+            public bool OriginalGatePassed;
         }
 
         public sealed class OutlineState
         {
             public string Book;
-            public string Section;
-            /// <summary>Portrait and phone show either the chapter list or one section.</summary>
-            public bool ListOpen = true;
-            public bool Place;
+            public HashSet<string> OpenChapters = new HashSet<string>();
+            public HashSet<string> OpenSections = new HashSet<string>();
+            public string ScrollTo;
+            /// <summary>The "place media" input that is open: "chapterId|sectionId" (sectionId empty for the chapter as a whole).</summary>
+            public string PlaceAt;
+            public string PlaceQuery = "";
+            /// <summary>When a typed name matched nothing: is the new thing a photo or a video?</summary>
+            public bool PlaceNewIsVideo;
         }
 
         public sealed class CoversState
@@ -99,8 +120,7 @@ namespace MediaTrip.UI
             public string SlotBook;
             /// <summary>"cover" or a chapter id; null when no slot sheet is open.</summary>
             public string SlotKey;
-            public string NewText = "";
-            public bool Picking;
+            public string Query = "";
         }
 
         public sealed class SummaryState
@@ -125,6 +145,8 @@ namespace MediaTrip.UI
             public string Kind;
             public string BookId;
             public string Id;
+            /// <summary>Video notes only: paste into the working copy (recorded as a revision) rather than the original.</summary>
+            public bool Working;
             public string Text = "";
         }
 
@@ -133,6 +155,10 @@ namespace MediaTrip.UI
             public ImportReport Report;
             public string SourceLabel;
             public string PendingPath;
+            /// <summary>Set when the import was started for one kind of document; anything else is refused.</summary>
+            public DocumentKind? Expect;
+            /// <summary>The book an outline import goes into, whatever bookId the file carries.</summary>
+            public string OutlineBookId;
         }
 
         public sealed class JsonState

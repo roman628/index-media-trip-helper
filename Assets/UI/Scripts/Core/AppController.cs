@@ -40,6 +40,8 @@ namespace MediaTrip.UI
 
         /// <summary>Set by the visible outliner: handles the keyboard's structural keys. Returns true if handled.</summary>
         public Func<string, bool> AccessoryAction;
+        /// <summary>Set by the outline editor: handles keys typed in a chapter ("oc:id") or section ("os:id") name field. Arguments are the field name and the action.</summary>
+        public Func<string, string, bool> NameKeyAction;
 
         private UIDocument _doc;
         private VisualElement _bodyHost, _popupLayer, _modalLayer, _toastHost;
@@ -54,12 +56,22 @@ namespace MediaTrip.UI
         private IVisualElementScheduledItem _popupCloser;
         private bool _popupDismiss;
         private readonly Dictionary<string, Vector2> _scroll = new Dictionary<string, Vector2>();
+        private PanelSettings _sharedPanel;
         private int _debugTaps;
         private float _debugTapAt;
 
         private void OnEnable()
         {
             _doc = GetComponent<UIDocument>();
+            // The scale is set at run time from the screen. Work on a copy so the asset in the
+            // project is never rewritten with whatever size the Game view happened to have.
+            if (_doc.panelSettings != null && _sharedPanel == null)
+            {
+                _sharedPanel = _doc.panelSettings;
+                var copy = Instantiate(_sharedPanel);
+                copy.name = _sharedPanel.name + " (runtime)";
+                _doc.panelSettings = copy;
+            }
             ApplyPanelScale();
             var root = _doc.rootVisualElement;
             Root = root.Q("app") ?? root;
@@ -157,7 +169,6 @@ namespace MediaTrip.UI
             var t = Session.Data.Trip;
             State.SM.Day = Fmt.TodayOrLast(t, DateTime.Now)?.Id;
             State.OL.Book = t.Books.FirstOrDefault()?.Id;
-            State.OL.Section = Session.Data.FindOutline(State.OL.Book)?.Chapters.SelectMany(c => c.Sections).FirstOrDefault()?.Id;
             _sheet = null;
             _scroll.Clear();
             Render();
@@ -205,6 +216,7 @@ namespace MediaTrip.UI
         {
             if (_bodyHost == null) return;
             AccessoryAction = null;
+            NameKeyAction = null;
             ClosePopup();
             SaveScroll();
             try
@@ -249,6 +261,7 @@ namespace MediaTrip.UI
             if (_sheet != null) return _sheet;
             if (Session == null) return null;
             if (State.Search != null) return SearchSheet.Build(this);
+            if (State.Shortcuts) return ShortcutsSheet.Build(this);
             if (State.Menu) return AppShell.Menu(this);
             if (State.Paste != null) return PasteSheet.Build(this);
             switch (State.Screen)
@@ -270,16 +283,15 @@ namespace MediaTrip.UI
             var st = State;
             bool closed = true;
             if (st.Search != null) st.Search = null;
+            else if (st.Shortcuts) st.Shortcuts = false;
             else if (st.Menu) st.Menu = false;
             else if (st.Paste != null) st.Paste = null;
             else if (st.Screen == Screen.ShotList && st.SL.Amend != null) st.SL.Amend = null;
-            else if (st.Screen == Screen.ShotList && st.SL.VideoId != null && !Layout.Land) st.SL.VideoId = null;
             else if (st.Screen == Screen.Film && st.Film.PlanOpen) st.Film.PlanOpen = false;
-            else if (st.Screen == Screen.Covers && st.CV.Picking) st.CV.Picking = false;
             else if (st.Screen == Screen.Covers && st.CV.SlotKey != null) st.CV.SlotKey = null;
             else if (st.Screen == Screen.Summary && st.SM.Batch != null) st.SM.Batch = null;
             else if (st.Screen == Screen.Summary && (st.SM.OpenCapture != null || st.SM.OpenPhoto != null)) { st.SM.OpenCapture = null; st.SM.OpenPhoto = null; }
-            else if (st.Screen == Screen.Outlines && st.OL.Place) st.OL.Place = false;
+            else if (st.Screen == Screen.Outlines && st.OL.PlaceAt != null) { st.OL.PlaceAt = null; st.OL.PlaceQuery = ""; }
             else closed = false;
             if (closed) { st.Focus = null; Render(); }
             return closed;
@@ -424,6 +436,32 @@ namespace MediaTrip.UI
                 var n = tf.value?.Length ?? 0;
                 tf.SelectRange(n, n);
             });
+            // A field that was just added sits below what was on screen; bring it into view
+            // after the old scroll position has been put back, or the list jumps away from it.
+            tf.schedule.Execute(() => ScrollIntoView(tf)).StartingIn(60);
+        }
+
+        /// <summary>Scroll the nearest ScrollView so the element is visible, with a little room around it.</summary>
+        public static void ScrollIntoView(VisualElement e)
+        {
+            if (e?.panel == null) return;
+            var sv = e.GetFirstAncestorOfType<ScrollView>();
+            if (sv == null) return;
+            var view = sv.contentViewport.worldBound;
+            var box = e.worldBound;
+            float dy = 0;
+            if (box.yMin < view.yMin + 12) dy = box.yMin - view.yMin - 12;
+            else if (box.yMax > view.yMax - 12) dy = box.yMax - view.yMax + 12;
+            if (Mathf.Abs(dy) < 1) return;
+            var max = Mathf.Max(0, sv.contentContainer.layout.height - view.height);
+            sv.scrollOffset = new Vector2(sv.scrollOffset.x, Mathf.Clamp(sv.scrollOffset.y + dy, 0, max));
+        }
+
+        /// <summary>After the next layout, scroll to the element with this name (a row opened from search or from another screen).</summary>
+        public void ScrollToNamed(string elementName)
+        {
+            if (string.IsNullOrEmpty(elementName)) return;
+            Root.schedule.Execute(() => { var e = Root.Q(elementName); if (e != null) ScrollIntoView(e); }).StartingIn(80);
         }
 
         /// <summary>Re-render and put the caret back into the named field.</summary>
@@ -477,16 +515,40 @@ namespace MediaTrip.UI
             st.Search = null;
             st.Focus = null;
             st.Paste = null;
+            st.Shortcuts = false;
+            st.OL.PlaceAt = null;
+            st.SL.OriginalGatePassed = false;
             _sheet = null;
-            if (s == Screen.Outlines && !Layout.Land) st.OL.ListOpen = true;
             if (s != Screen.ShotList) st.SL.Amend = null;
+            Session?.EndEditSession();
             Render();
         }
 
+        /// <summary>
+        /// The header's Edit / Done. Edit changes the document; the normal state annotates it.
+        /// Entering Edit on the original shot list once media exists asks first whether this is
+        /// a fix to what was typed or a change of plan (see <see cref="ShotListScreen.OriginalGate"/>).
+        /// </summary>
         public void ToggleEdit()
         {
-            State.Edit = !State.Edit;
-            State.Focus = null;
+            var st = State;
+            st.Focus = null;
+            if (st.Edit)
+            {
+                st.Edit = false;
+                st.SL.OriginalGatePassed = false;
+                st.Trip.NewPerson = null; st.Trip.MemberBook = null;
+                Session?.EndEditSession();
+                Render();
+                return;
+            }
+            if (st.Screen == Screen.ShotList && st.SL.View == ShotListMode.Original && Session != null && Session.HasFieldMedia && !st.SL.OriginalGatePassed)
+            {
+                ShotListScreen.OriginalGate(this);
+                return;
+            }
+            st.Edit = true;
+            st.OL.PlaceAt = null;
             Render();
         }
 
@@ -522,17 +584,26 @@ namespace MediaTrip.UI
             var item = Session.Plan.FindItem(planItemId);
             if (item != null && (item.IsDropped || item.IsSuperseded)) State.SL.View = ShotListMode.Original;
             State.SL.HideDone = false;
-            State.SL.VideoId = planItemId;
+            State.SL.Expanded.Add(planItemId);
             Render();
+            ScrollToNamed("row:" + planItemId);
+        }
+
+        /// <summary>Open Outlines on a book with a chapter (and optionally one of its sections) expanded.</summary>
+        public void OpenChapter(string bookId, string chapterId, string sectionId = null)
+        {
+            Nav(Screen.Outlines);
+            State.OL.Book = bookId;
+            if (chapterId != null) State.OL.OpenChapters.Add(chapterId);
+            if (sectionId != null) State.OL.OpenSections.Add(sectionId);
+            Render();
+            ScrollToNamed(sectionId != null ? "sec:" + sectionId : "ch:" + chapterId);
         }
 
         public void OpenSection(string bookId, string sectionId)
         {
-            Nav(Screen.Outlines);
-            State.OL.Book = bookId;
-            State.OL.Section = sectionId;
-            State.OL.ListOpen = sectionId == null;
-            Render();
+            var ch = Session.Outline.ChapterOfSection(bookId, sectionId);
+            OpenChapter(bookId, ch?.Id, sectionId);
         }
 
         public void OpenSummary(string captureId)

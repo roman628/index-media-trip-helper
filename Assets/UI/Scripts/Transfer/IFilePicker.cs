@@ -15,8 +15,12 @@ namespace MediaTrip.UI.Transfer
         /// <summary>True when a real file chooser can be shown for import on this platform.</summary>
         bool CanPick { get; }
 
-        /// <summary>Let the user pick a .zip or .json to import. onPicked gets a readable local path.</summary>
-        void PickImport(Action<string> onPicked, Action<string> onCancelled);
+        /// <summary>
+        /// Let the user pick a file to import. onPicked gets a readable local path.
+        /// <paramref name="extensionsCsv"/> narrows what the chooser offers: "zip,json" for
+        /// anything, "json" when one kind of document is being imported.
+        /// </summary>
+        void PickImport(Action<string> onPicked, Action<string> onCancelled, string extensionsCsv = "zip,json");
 
         /// <summary>
         /// Share a file the app has written: the iOS share sheet (Files, AirDrop, Mail...), a

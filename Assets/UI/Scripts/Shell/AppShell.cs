@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using MediaTrip.Persistence;
 using MediaTrip.UI.Transfer;
@@ -34,15 +35,10 @@ namespace MediaTrip.UI.Shell
             if (back) h.Add(U.IconBtn(GlyphKind.ChevronLeft, () => app.Nav(Screen.Library), "ghost back"));
             h.Add(U.Text(title, "t grow"));
             if (edit) h.Add(U.Btn(st.Edit ? "Done" : "Edit", app.ToggleEdit, "sm mr8" + (st.Edit ? " pri" : "")));
-            h.Add(SunButton(app));
             h.Add(U.IconBtn(GlyphKind.Search, () => { st.Search = ""; st.Menu = false; app.RenderKeepFocus("search"); }));
             h.Add(U.IconBtn(GlyphKind.Dots, () => { st.Menu = !st.Menu; app.Render(); }));
             return h;
         }
-
-        /// <summary>One tap to the high-contrast sun scheme and back.</summary>
-        public static Button SunButton(AppController app) =>
-            U.IconBtn(GlyphKind.Sun, () => { app.Theme.ToggleSun(); app.Toast(app.Theme.IsSun ? "Sun mode" : "Sun mode off"); }, app.Theme.IsSun ? "pri" : "ghost");
 
         private static bool IsOn(AppController app, Screen tab) =>
             app.State.Screen == tab || (tab == app.State.Film.Return && app.State.Screen == Screen.Film);
@@ -84,31 +80,38 @@ namespace MediaTrip.UI.Shell
             void Item(string text, System.Action act) => card.Add(U.Tap(() => { st.Menu = false; act(); }, "item h52", U.Text(text, "bold")));
 
             Item("Share trip…", () => { app.Render(); app.Transfer.ShareTrip(d, m => app.Toast(m), m => app.Toast(m)); });
-            var doc = DocumentOf(app);
-            if (doc != null)
+            // Every export says which document it is; nothing is just "the shot list".
+            foreach (var request in ExportsFor(app))
             {
-                var (kind, bookId) = doc.Value;
-                var name = TripTransfer.DocumentFileName(d, kind, bookId);
-                Item("Share " + name.Substring(name.LastIndexOf('/') + 1) + "…", () => { app.Render(); app.Transfer.ShareDocument(d, kind, bookId, m => app.Toast(m), m => app.Toast(m)); });
+                var r = request;
+                Item(MediaTrip.Export.TripExports.Label(r.Kind) + "…", () => { app.Render(); app.Transfer.Export(s, r, m => app.Toast(m), m => app.Toast(m)); });
             }
             Item("Import…", () => { app.Render(); ImportFlow.Begin(app); });
             Item("Theme…", () => { app.Render(); ThemeSheet.Open(app); });
+            if (Shortcuts.HardwareKeyboardPresent) Item("Shortcuts", () => { st.Shortcuts = true; app.Render(); });
+            card.style.width = 300;
             return app.Overlay(card, Close, "clear");
         }
 
-        /// <summary>The document behind the screen being looked at, for "Share this document".</summary>
-        private static (DocumentKind, string)? DocumentOf(AppController app)
+        /// <summary>The exports that belong to the screen being looked at.</summary>
+        private static List<MediaTrip.Export.ExportRequest> ExportsFor(AppController app)
         {
+            var list = new List<MediaTrip.Export.ExportRequest>();
             switch (app.State.Screen)
             {
-                case Screen.Trip: return (DocumentKind.Trip, null);
-                case Screen.ShotList: return (DocumentKind.ShotList, null);
-                case Screen.Summary: return (DocumentKind.Captures, null);
+                case Screen.Trip: list.Add(new MediaTrip.Export.ExportRequest(MediaTrip.Export.ExportKind.Trip)); break;
+                case Screen.ShotList:
+                    list.Add(new MediaTrip.Export.ExportRequest(MediaTrip.Export.ExportKind.OriginalShotList));
+                    list.Add(new MediaTrip.Export.ExportRequest(MediaTrip.Export.ExportKind.WorkingShotList));
+                    list.Add(new MediaTrip.Export.ExportRequest(MediaTrip.Export.ExportKind.Changes));
+                    break;
+                case Screen.Summary: list.Add(new MediaTrip.Export.ExportRequest(MediaTrip.Export.ExportKind.MediaSummary)); break;
                 case Screen.Outlines:
                     var b = app.State.OL.Book;
-                    return b != null && app.Session.Data.Outlines.ContainsKey(b) ? (DocumentKind.Outline, b) : ((DocumentKind, string)?)null;
-                default: return null;
+                    if (b != null && app.Session.Data.Outlines.ContainsKey(b)) list.Add(new MediaTrip.Export.ExportRequest(MediaTrip.Export.ExportKind.Outline, b));
+                    break;
             }
+            return list;
         }
     }
 }

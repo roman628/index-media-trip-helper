@@ -52,13 +52,27 @@ namespace MediaTrip.UI.ViewModels
             return it.SmeText ?? "";
         }
 
+        /// <summary>
+        /// A book is shown by its name and nothing else: the real names carry their own numbers
+        /// ("Book 46 …"), so the entry order is kept for sorting but never printed in front.
+        /// </summary>
+        public static string BookName(Book b) => b == null ? "Unknown book" : string.IsNullOrWhiteSpace(b.Name) ? "Untitled book" : b.Name;
+
+        /// <summary>"Confined Space Entry · Ch.2"</summary>
         public static string BookChapter(TripData d, string bookId, string chapterId)
         {
-            var b = d.FindBook(bookId);
             var c = d.FindChapter(chapterId);
-            var s = b != null ? "Book " + b.Number : "Book ?";
-            s += c != null ? " Ch." + c.Number : " · no chapter";
-            return s;
+            var b = d.FindBook(bookId ?? c?.BookId);
+            return BookName(b) + (c != null ? " · Ch." + c.Number : "");
+        }
+
+        /// <summary>What a photo IS, for a search result: its book, its chapter, and whether it is the cover or a given chapter's hero.</summary>
+        public static string PhotoWhere(TripData d, PhotoItem p)
+        {
+            var b = d.FindBook(p.BookId);
+            var c = d.FindChapter(p.ChapterId);
+            var use = p.HeroType == HeroType.BookCover ? "Cover" : p.HeroType == HeroType.ChapterHero ? "Ch." + (c?.Number.ToString() ?? "?") + " hero" : c != null ? "Ch." + c.Number : null;
+            return BookName(b) + (use != null ? " · " + use : "") + (p.IsNew ? " · new" : "");
         }
 
         public static string OriginNote(PlanItem it, Capture c)

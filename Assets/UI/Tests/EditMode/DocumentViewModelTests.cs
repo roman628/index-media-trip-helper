@@ -19,7 +19,8 @@ namespace MediaTrip.UI.Tests
             var rows = v.Books.SelectMany(b => b.Chapters).SelectMany(c => c.Rows).ToList();
             Assert.AreEqual("1+2", rows[0].Number);
             Assert.AreEqual("+", rows[3].Number);
-            StringAssert.Contains("added on site", rows[3].Sub);
+            CollectionAssert.Contains(rows[3].Tags, "new", "added during the trip: tagged, not on the original");
+            CollectionAssert.Contains(rows[1].Tags, "was named Filling Out the Entry Permit");
             Assert.AreEqual("Completing the Confined Space Entry Permit", rows[1].Title, "renamed title");
             Assert.IsTrue(rows.All(r => !r.Dim));
             Assert.AreEqual("ph-002", v.Books[0].Chapters[0].Hero.Id);
@@ -60,7 +61,8 @@ namespace MediaTrip.UI.Tests
         {
             var s = UiFixtures.Session();
             var v = ShotListView.Build(s, ShotListMode.Changes, false);
-            CollectionAssert.AreEqual(new[] { "Combined", "Renamed", "Added", "Dropped" }, v.Changes.Select(c => c.Label).ToList());
+            CollectionAssert.AreEqual(new[] { "Combined", "Renamed", "New video", "Dropped" }, v.Changes.Select(c => c.Label).ToList());
+            Assert.IsEmpty(v.Corrections);
             Assert.AreEqual("#1 + #2 → <b>Walkthrough and Entry Point Hazards</b>", v.Changes[0].Line);
             Assert.AreEqual("v-c001", v.Changes[0].OpenItemId);
             Assert.AreEqual("v-003", v.Changes[1].OpenItemId);
@@ -68,6 +70,51 @@ namespace MediaTrip.UI.Tests
             Assert.AreEqual("ok", v.Changes[2].Style);
             Assert.AreEqual("bad", v.Changes[3].Style);
             StringAssert.Contains("<s>Try Step Verification</s>", v.Changes[3].Line);
+        }
+
+        [Test]
+        public void Changes_KeepCorrectionsApart_AndDescribeRevisionsFieldByField()
+        {
+            var s = UiFixtures.Session();
+            var working = new MediaTrip.Authoring.PlanEdits(s, MediaTrip.Authoring.PlanEditMode.Working);
+            working.SetScene("v-004", "Three cameras at the MCC.");
+            working.SetSmeIds("v-004", new System.Collections.Generic.List<string> { "p-006" });
+            s.EndEditSession();
+            new MediaTrip.Authoring.PlanEdits(s, MediaTrip.Authoring.PlanEditMode.Original).SetTitle("v-004", "Applying the First Locks");
+
+            var v = ShotListView.Build(s, ShotListMode.Changes, false);
+            var revised = v.Changes.Single(c => c.Label == "Revised");
+            StringAssert.Contains("scene: “Motor control center, two cameras.” → <b>“Three cameras at the MCC.”</b>", revised.Line);
+            StringAssert.Contains("SME: Nina Okoro → <b>Terry Blackwood</b>", revised.Line);
+            Assert.AreEqual("v-004", revised.OpenItemId);
+
+            var fix = v.Corrections.Single();
+            Assert.AreEqual("Corrected", fix.Label);
+            StringAssert.Contains("title: “Applying the First Lock” → <b>“Applying the First Locks”</b>", fix.Line);
+            Assert.IsFalse(v.Changes.Any(c => c.Record != null && c.Record.Kind == MediaTrip.Model.ChangeRecordKind.Correction), "a correction is never listed as a change of plan");
+
+            var row = ShotListView.Build(s, ShotListMode.Working, false).Books[1].Chapters[0].Rows[0];
+            CollectionAssert.Contains(row.Tags, "revised");
+            CollectionAssert.Contains(row.Tags, "was named Applying the First Lock");
+        }
+
+        [Test]
+        public void Photos_AreListedWithTheirBook_InBothViews()
+        {
+            var s = UiFixtures.Session();
+            s.CreateMedia(MediaTrip.Model.MediaKind.Photo, "Lock on the breaker", "b-002", "c-202");
+            var working = ShotListView.Build(s, ShotListMode.Working, false);
+            Assert.AreEqual(4, working.Books[0].Photos.Count);
+            Assert.AreEqual(5, working.Books[1].Photos.Count, "the photo added during the trip is on the working list");
+            Assert.AreEqual("Cover", working.Books[0].Photos[0].Use);
+            Assert.AreEqual("Ch.1 hero", working.Books[0].Photos[1].Use);
+            CollectionAssert.Contains(working.Books[1].Photos.Last().Tags, "new");
+
+            var original = ShotListView.Build(s, ShotListMode.Original, false);
+            Assert.AreEqual(4, original.Books[1].Photos.Count, "and not on the original");
+
+            var left = ShotListView.Build(s, ShotListMode.Working, hideDone: true);
+            CollectionAssert.AreEquivalent(new[] { "ph-007" }, left.Books.SelectMany(b => b.Photos).Where(p => !p.Photo.IsNew).Select(p => p.Photo.Id).ToList());
         }
 
         [Test]
@@ -115,25 +162,66 @@ namespace MediaTrip.UI.Tests
             Assert.AreEqual(1, CoverActions.EmptyCount(s.Queries.CoverBoard()));
             Assert.AreEqual(6, CoverActions.SlotCount(s.Queries.CoverBoard()));
 
-            var candidates = CoverActions.Candidates(s, slot).Select(p => p.Id).ToList();
-            CollectionAssert.DoesNotContain(candidates, "ph-007", "the planned hero is not a candidate for its own slot");
-            CollectionAssert.Contains(candidates, "ph-008");
+            // one search box over every photo of every book
+            var found = CoverActions.Search(s, slot, "personal lock");
+            Assert.AreEqual("ph-008", found[0].Id);
+            Assert.AreEqual("Lockout / Tagout", Fmt.PhotoWhere(s.Data, found[0]), "a result says which book it is in");
+            var other = CoverActions.Search(s, slot, "clipboard permit")[0];
+            Assert.AreEqual("ph-003", other.Id, "photos of other books are found too");
+            Assert.AreEqual("Confined Space Entry · Ch.2 hero", Fmt.PhotoWhere(s.Data, other), "and says WHICH chapter's hero it is");
+            Assert.IsTrue(CoverActions.IsFromAnotherBook(slot, other));
+            Assert.IsFalse(CoverActions.IsFromAnotherBook(slot, found[0]));
+            Assert.IsTrue(CoverActions.IsExactMatch("Personal lock with name tag", found), "typing an existing photo's name does not offer to create it again");
+            Assert.IsFalse(CoverActions.IsExactMatch("personal lock", found));
 
+            // something new goes through the one path: shot list, summary, slot, and the chapter in Outlines
             var a = CoverActions.AssignNew(s, slot, "Owen's lock going on", "d-002");
-            Assert.IsNotNull(a.PhotoCaptureId, "a new photo is also logged on the day");
-            Assert.AreEqual("Owen's lock going on", s.Data.FindPhotoCapture(a.PhotoCaptureId).Text);
+            var made = s.Plan.FindPhoto(a.PhotoId);
+            Assert.IsTrue(made.IsNew);
+            Assert.AreEqual("c-202", made.ChapterId);
+            CollectionAssert.Contains(s.Queries.PhotosOfBook("b-002").Select(p => p.Id).ToList(), a.PhotoId, "on the working shot list");
+            Assert.IsNull(s.Data.FindPhoto(a.PhotoId), "not on the original");
+            Assert.AreEqual(a.PhotoId, s.Data.FindPhotoCapture(a.PhotoCaptureId).PhotoId, "logged on the day");
+            Assert.AreEqual(1, s.Queries.PlacedIn("c-202").Count, "placed on the chapter in Outlines");
+            Assert.IsTrue(ShotListView.Build(s, ShotListMode.Changes, false).Changes.Any(c => c.Label == "New photo"));
+
+            // removed from the summary, it can be added back
+            s.RemovePhotoCapture(a.PhotoCaptureId);
+            CollectionAssert.Contains(PhotoBatchDraft.NotYetShot(s).Select(p => p.Id).ToList(), a.PhotoId);
+
             CoverActions.AssignExisting(s, slot, "ph-008");
             slot = s.Queries.CoverSlot("b-002", "c-202");
             Assert.AreEqual(2, slot.Assigned.Count);
-            CollectionAssert.DoesNotContain(CoverActions.Candidates(s, slot).Select(p => p.Id).ToList(), "ph-008");
+            CollectionAssert.DoesNotContain(CoverActions.Search(s, slot, "personal lock").Select(p => p.Id).ToList(), "ph-008", "what already fills the slot is not offered again");
             Assert.AreEqual(PhotoStatus.NotCaptured, s.Plan.FindPhoto("ph-007").Status, "assigning something else does not tick the planned photo");
 
+            // the planned photo: got it, and taken back
             Assert.IsNotNull(CoverActions.GotPlanned(s, slot, "d-002"));
             slot = s.Queries.CoverSlot("b-002", "c-202");
             Assert.IsTrue(slot.Assigned[0].IsPlanned);
             Assert.AreEqual(3, slot.Assigned.Count);
             Assert.IsNull(CoverActions.GotPlanned(s, slot, "d-002"), "already shot");
+            Assert.AreEqual(1, CoverActions.UngotPlanned(s, "ph-007"));
+            Assert.AreEqual(2, s.Queries.CoverSlot("b-002", "c-202").Assigned.Count, "un-assigned again");
             Assert.IsNull(CoverActions.AssignNew(s, slot, "  ", "d-002"));
+        }
+
+        [Test]
+        public void Covers_APhotoOfAnotherBook_IsMovedOrSharedOnlyWhenAsked()
+        {
+            var s = UiFixtures.Session();
+            var slot = s.Queries.CoverSlot("b-002", "c-202");
+            var where = CoverActions.WhereAssigned(s, s.Plan.FindPhoto("ph-003"));
+            Assert.AreEqual("Confined Space Entry · Ch.2 hero", where[0]);
+
+            CoverActions.AssignExisting(s, slot, "ph-003", move: false);
+            Assert.AreEqual("b-001", s.Plan.FindPhoto("ph-003").BookId, "assign to both: it stays where it is");
+            StringAssert.Contains("Lockout / Tagout · Ch.2 hero", CoverActions.WhereAssigned(s, s.Plan.FindPhoto("ph-003"))[1]);
+
+            CoverActions.AssignExisting(s, slot, "ph-004", move: true);
+            Assert.AreEqual("b-002", s.Plan.FindPhoto("ph-004").BookId, "move: it is now in this book on the working list");
+            Assert.AreEqual("b-001", s.Data.FindPhoto("ph-004").BookId, "and still where it was printed on the original");
+            Assert.IsTrue(ShotListView.Build(s, ShotListMode.Working, false).Books[1].Photos.Any(p => p.Photo.Id == "ph-004" && p.Tags.Any(t => t.StartsWith("moved from"))));
         }
     }
 

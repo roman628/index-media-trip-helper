@@ -48,34 +48,89 @@ namespace MediaTrip.UI.ViewModels
     /// <summary>What the Covers slot sheet does. A slot is assigned to, never ticked.</summary>
     public static class CoverActions
     {
-        /// <summary>The planned hero was shot: log it on the day. It then shows as assigned.</summary>
-        public static PhotoCapture GotPlanned(TripSession s, CoverSlot slot, string dayId)
+        /// <summary>A planned cover or hero was shot: log it on the day. It then shows as assigned.</summary>
+        public static PhotoCapture GotPlanned(TripSession s, CoverSlot slot, string dayId, string photoId = null)
         {
-            if (slot?.Planned == null || slot.Planned.Status == PhotoStatus.Captured) return null;
-            return s.AddPhotoCapture(new PhotoCapture { DayId = dayId, PhotoId = slot.Planned.Id, Section = PhotoCaptureSection.AdditionalPhotography });
+            var planned = photoId != null ? slot?.PlannedPhotos.FirstOrDefault(p => p.Id == photoId) : slot?.Planned;
+            if (planned == null || planned.Status == PhotoStatus.Captured) return null;
+            return s.AddPhotoCapture(new PhotoCapture { DayId = dayId, PhotoId = planned.Id, Section = PhotoCaptureSection.AdditionalPhotography });
         }
 
-        /// <summary>Something new decided on the spot: logged on the day and assigned to the slot.</summary>
+        /// <summary>Take "got it" back. The planned photo is unassigned again because it is no longer recorded as shot.</summary>
+        public static int UngotPlanned(TripSession s, string photoId) => s.UncapturePhoto(photoId);
+
+        /// <summary>
+        /// Something new decided on the spot. It goes through the one path for new media, so it
+        /// is on the working shot list in this book and chapter, marked new and listed in
+        /// Changes; it is logged on the day, assigned to the slot, and, for a chapter's slot,
+        /// placed on that chapter in Outlines.
+        /// </summary>
         public static HeroAssignment AssignNew(TripSession s, CoverSlot slot, string text, string dayId)
         {
             if (slot == null || string.IsNullOrWhiteSpace(text)) return null;
-            var pc = s.AddPhotoCapture(new PhotoCapture { DayId = dayId, Text = text.Trim(), Section = PhotoCaptureSection.AdditionalPhotography });
-            return s.AssignHero(slot.Book.Id, slot.Chapter?.Id, null, text, pc.Id);
+            var id = s.CreateMedia(MediaKind.Photo, text, slot.Book.Id, slot.Chapter?.Id, "Added from Covers for " + (slot.IsCover ? "the cover" : "the chapter hero") + ".");
+            var pc = s.AddPhotoCapture(new PhotoCapture { DayId = dayId, PhotoId = id, Section = PhotoCaptureSection.AdditionalPhotography });
+            if (slot.Chapter != null)
+                s.Assign(new MediaRef(MediaRefKind.PhotoCapture, pc.Id), slot.Book.Id, slot.Chapter.Id, null, null, AssignmentSource.Manual, null, true);
+            return s.AssignHero(slot.Book.Id, slot.Chapter?.Id, id, null, pc.Id);
         }
 
-        /// <summary>An existing master-list photo takes the slot.</summary>
-        public static HeroAssignment AssignExisting(TripSession s, CoverSlot slot, string photoId) =>
-            slot == null ? null : s.AssignHero(slot.Book.Id, slot.Chapter?.Id, photoId, null);
-
-        /// <summary>Master-list photos of the slot's book that could take it: not the planned hero, not already assigned. Shot ones first.</summary>
-        public static List<PhotoItem> Candidates(TripSession s, CoverSlot slot)
+        /// <summary>
+        /// An existing photo takes the slot. When it belongs to another book the caller asks
+        /// first (see <see cref="IsFromAnotherBook"/>): <paramref name="move"/> moves it to this
+        /// book in the working copy; otherwise it stays where it is and serves both.
+        /// </summary>
+        public static HeroAssignment AssignExisting(TripSession s, CoverSlot slot, string photoId, bool move = false)
         {
+            if (slot == null) return null;
+            if (move) s.MovePhoto(photoId, slot.Book.Id, slot.Chapter?.Id, "Moved from Covers.");
+            return s.AssignHero(slot.Book.Id, slot.Chapter?.Id, photoId, null);
+        }
+
+        public static bool IsFromAnotherBook(CoverSlot slot, PhotoItem photo) => photo != null && !photo.Photo.BelongsToBook(slot.Book.Id);
+
+        /// <summary>Where a photo already is: its own book and use, and every slot it is assigned to. For the "already assigned" dialog.</summary>
+        public static List<string> WhereAssigned(TripSession s, PhotoItem photo)
+        {
+            var d = s.Data;
+            var lines = new List<string> { Fmt.PhotoWhere(d, photo) };
+            foreach (var h in d.Captures.HeroAssignments.Where(h => h.PhotoId == photo.Id))
+            {
+                var ch = d.FindChapter(h.ChapterId);
+                lines.Add("Assigned: " + Fmt.BookName(d.FindBook(h.BookId)) + " · " + (ch == null ? "Cover" : "Ch." + ch.Number + " hero"));
+            }
+            return lines;
+        }
+
+        /// <summary>
+        /// Fuzzy search over every photo of every book for the slot's one input. What already
+        /// fills the slot is left out; photos of the slot's own book come first on a tie.
+        /// </summary>
+        public static List<PhotoItem> Search(TripSession s, CoverSlot slot, string query, int max = 6)
+        {
+            if (string.IsNullOrWhiteSpace(query)) return new List<PhotoItem>();
             var taken = new HashSet<string>(slot.Assigned.Where(a => a.Photo != null).Select(a => a.Photo.Id));
-            if (slot.Planned != null) taken.Add(slot.Planned.Id);
-            return s.Queries.PhotosOfBook(slot.Book.Id, true)
-                .Where(p => !taken.Contains(p.Id) && p.Status != PhotoStatus.Dropped)
-                .OrderBy(p => p.Status == PhotoStatus.Captured ? 0 : 1)
-                .ToList();
+            return s.Search.SearchPhotos(query.Trim(), max + taken.Count + 4)
+                .Where(m => !taken.Contains(m.Item.Id) && m.Item.Status != PhotoStatus.Dropped)
+                .Select((m, i) => (m, i))
+                .OrderByDescending(t => System.Math.Round(t.m.Score, 2)).ThenBy(t => t.m.Item.Photo.BelongsToBook(slot.Book.Id) ? 0 : 1).ThenBy(t => t.i)
+                .Select(t => t.m.Item).Take(max).ToList();
+        }
+
+        /// <summary>True when the typed text names one of the results outright, so "create new" is not offered for it.</summary>
+        public static bool IsExactMatch(string query, IEnumerable<PhotoItem> results)
+        {
+            var q = Normalize(query);
+            return q.Length > 0 && results.Any(p => Normalize(p.Description) == q || Normalize(U_ShortDescription(p.Description)) == q);
+        }
+
+        private static string Normalize(string s) => new string((s ?? "").ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
+
+        private static string U_ShortDescription(string description)
+        {
+            if (string.IsNullOrEmpty(description)) return "";
+            var idx = description.IndexOf(": ", System.StringComparison.Ordinal);
+            return idx > 0 && idx < 16 ? description.Substring(idx + 2) : description;
         }
 
         public static int EmptyCount(List<CoverBook> board) => board.SelectMany(b => b.Slots).Count(x => x.IsEmpty);

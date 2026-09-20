@@ -139,8 +139,8 @@ namespace MediaTrip.UI.Docs
             var Sm = app.State.SM; var s = app.Session; var d = s.Data;
             void Close() { Sm.OpenCapture = null; app.Render(); }
             var body = U.Scroll();
-            var time = U.FmtTime(c.At);
-            body.Add(U.Sub(U.Esc(app.DayLabel(c.DayId) + (time.Length > 0 ? " · " + time : "") + " · " + Fmt.BookChapter(d, c.BookId, c.ChapterId))).Mb(8));
+            body.Add(U.Sub(U.Esc(Fmt.BookChapter(d, c.BookId, c.ChapterId))).Mb(8));
+            body.Add(WhenEditor(app, c.Id, c.DayId, c.At));
             void F(string k, string v) { if (!string.IsNullOrWhiteSpace(v)) body.Add(U.KV(k, U.Esc(v))); }
             F("SME", string.Join("\n", (c.People ?? new List<CapturePerson>()).Select(p => p.Name + (string.IsNullOrEmpty(p.Title) ? "" : " · " + p.Title))));
             F("Cameras", c.CameraCount?.ToString());
@@ -161,12 +161,46 @@ namespace MediaTrip.UI.Docs
             return app.Sheet(700, Close, app.SheetHead(U.Esc(c.Title), Close), body, foot);
         }
 
+        /// <summary>The day and the time of an entry, both changeable: things get logged late, or on the wrong day.</summary>
+        private static VisualElement WhenEditor(AppController app, string entryId, string dayId, string at)
+        {
+            var Sm = app.State.SM; var s = app.Session;
+            var col = U.Col().Mb(10);
+            col.Add(U.Lbl("Day"));
+            var days = U.Row().Cls("wrap");
+            foreach (var day in s.Data.Trip.Days.OrderBy(x => x.Date ?? "", System.StringComparer.Ordinal))
+            {
+                var id = day.Id;
+                days.Add(U.Chip((string.IsNullOrEmpty(day.Label) ? "Day" : day.Label) + " · " + U.FmtDate(day.Date), dayId == id, () =>
+                {
+                    if (dayId == id) return;
+                    s.MoveEntryToDay(entryId, id);
+                    Sm.Day = id;
+                    app.Toast("Moved to " + app.DayLabel(id));
+                }));
+            }
+            col.Add(days);
+            col.Add(U.Lbl("Time").Mt(4));
+            var time = U.Input(U.FmtTime(at), "9:40 am", null, false, "h48").W(160);
+            time.name = "sm.time";
+            void Commit()
+            {
+                if (string.IsNullOrWhiteSpace(time.value) || time.value.Trim() == U.FmtTime(at)) return;
+                if (!MediaTrip.Session.TripSession.TryParseTime(time.value, out var h, out var m)) { app.Toast("Type a time like 9:40 am or 14:30"); return; }
+                s.SetEntryTime(entryId, h, m);
+            }
+            time.RegisterCallback<FocusOutEvent>(_ => Commit());
+            time.RegisterCallback<KeyDownEvent>(e => { if (e.keyCode == UnityEngine.KeyCode.Return || e.keyCode == UnityEngine.KeyCode.KeypadEnter) { e.StopPropagation(); Commit(); } }, TrickleDown.TrickleDown);
+            col.Add(time);
+            return col;
+        }
+
         private static VisualElement PhotoSheet(AppController app, PhotoCapture p)
         {
             var Sm = app.State.SM; var s = app.Session;
             void Close() { Sm.OpenPhoto = null; app.Render(); }
-            var time = U.FmtTime(p.At);
-            var body = U.Col(U.Sub(U.Esc(app.DayLabel(p.DayId) + (time.Length > 0 ? " · " + time : "") + (p.PhotoId != null ? " · planned photo" : " · unplanned"))));
+            var photo = p.PhotoId != null ? s.Plan.FindPhoto(p.PhotoId) : null;
+            var body = U.Col(U.Sub(U.Esc(photo != null ? Fmt.PhotoWhere(s.Data, photo) : "unplanned photo")).Mb(8), WhenEditor(app, p.Id, p.DayId, p.At));
             var foot = U.Row(U.Btn("Remove", () => { s.RemovePhotoCapture(p.Id); Sm.OpenPhoto = null; app.Render(); }, "ghost danger"), U.Grow()).Mt(16);
             return app.Sheet(620, Close, app.SheetHead(U.Esc(U.ShortDescription(PhotoTitle(app, p))), Close), body, foot);
         }

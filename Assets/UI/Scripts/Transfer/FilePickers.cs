@@ -28,9 +28,10 @@ namespace MediaTrip.UI.Transfer
         public string Name => "file dialog";
         public bool CanPick => true;
 
-        public void PickImport(Action<string> onPicked, Action<string> onCancelled)
+        public void PickImport(Action<string> onPicked, Action<string> onCancelled, string extensionsCsv = "zip,json")
         {
-            var path = UnityEditor.EditorUtility.OpenFilePanelWithFilters("Import a trip (.zip or bundle .json) or a single document (.json)", "", new[] { "Trip files", "zip,json", "All files", "*" });
+            var jsonOnly = extensionsCsv == "json";
+            var path = UnityEditor.EditorUtility.OpenFilePanelWithFilters(jsonOnly ? "Import a document (.json)" : "Import a trip (.zip or bundle .json) or a single document (.json)", "", new[] { jsonOnly ? "JSON documents" : "Trip files", extensionsCsv, "All files", "*" });
             if (string.IsNullOrEmpty(path)) onCancelled?.Invoke(null); else onPicked?.Invoke(path);
         }
 
@@ -55,7 +56,7 @@ namespace MediaTrip.UI.Transfer
         public string Name => "app folder";
         public bool CanPick => false;
 
-        public void PickImport(Action<string> onPicked, Action<string> onCancelled) =>
+        public void PickImport(Action<string> onPicked, Action<string> onCancelled, string extensionsCsv = "zip,json") =>
             onCancelled?.Invoke("Put the file in " + TripTransfer.ImportDir + " and choose it from the list.");
 
         public void Share(string sourcePath, Action<string> onDone, Action<string> onCancelled)
@@ -75,10 +76,10 @@ namespace MediaTrip.UI.Transfer
         public string Name => "Files app";
         public bool CanPick => true;
 
-        public void PickImport(Action<string> onPicked, Action<string> onCancelled)
+        public void PickImport(Action<string> onPicked, Action<string> onCancelled, string extensionsCsv = "zip,json")
         {
             NativeBridge.Expect(onPicked, onCancelled);
-            try { _MediaTrip_ImportFile("zip,json"); }
+            try { _MediaTrip_ImportFile(extensionsCsv ?? "zip,json"); }
             catch (Exception ex) { NativeBridge.Clear(); onCancelled?.Invoke("Native picker failed to open: " + ex.Message); }
         }
 

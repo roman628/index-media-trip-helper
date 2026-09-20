@@ -92,8 +92,8 @@ namespace MediaTrip.UI.ViewModels
                 }
                 case "drop":
                 {
+                    // A plan change never deletes a capture: what was shot stays in the summary.
                     s.Drop(ItemId, Reason);
-                    foreach (var c in s.Data.Captures.Captures.Where(c => c.PlanVideoId == ItemId).ToList()) s.RemoveCapture(c.Id);
                     return ItemId;
                 }
             }

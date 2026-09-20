@@ -64,16 +64,37 @@ namespace MediaTrip.UI.Transfer
             Picker.Share(r.Path, m => onDone?.Invoke(m), m => { if (m != null) onFail?.Invoke(m); else onDone?.Invoke("Written to " + r.Path); });
         }
 
+        /// <summary>
+        /// Export one named thing (original shot list, working shot list, changes, media summary,
+        /// an outline) in a format, and hand the file to the platform's share gesture. The
+        /// writing is the export layer's; this only puts the file on disk and shares it, so a
+        /// second format needs nothing here.
+        /// </summary>
+        public void Export(MediaTrip.Session.TripSession session, MediaTrip.Export.ExportRequest request, Action<string> onDone, Action<string> onFail, string formatId = "json")
+        {
+            string path;
+            try
+            {
+                session.SaveNow();
+                var file = MediaTrip.Export.TripExports.Write(session, request, formatId);
+                Directory.CreateDirectory(ExportDir);
+                path = Path.Combine(ExportDir, file.FileName);
+                File.WriteAllBytes(path, file.Bytes);
+            }
+            catch (Exception ex) { Debug.LogException(ex); onFail?.Invoke("Export failed: " + ex.Message); return; }
+            Picker.Share(path, m => onDone?.Invoke(m), m => { if (m != null) onFail?.Invoke(m); else onDone?.Invoke("Written to " + path); });
+        }
+
         // ------------------------------------------------------------------ import (one call)
 
         /// <summary>
         /// Ask the platform for a file to import. On platforms with no chooser the callback
         /// gets a null path and the UI offers the Import-folder list instead.
         /// </summary>
-        public void BeginImport(Action<string> onPath, Action<string> onCancelled)
+        public void BeginImport(Action<string> onPath, Action<string> onCancelled, string extensionsCsv = "zip,json")
         {
             if (!Picker.CanPick) { onPath?.Invoke(null); return; }
-            Picker.PickImport(onPath, onCancelled);
+            Picker.PickImport(onPath, onCancelled, extensionsCsv);
         }
 
         // ------------------------------------------------------------------ files
@@ -168,8 +189,8 @@ namespace MediaTrip.UI.Transfer
         }
 
         /// <summary>For a single-document report, validate it against the open trip so the preview shows the merged result.</summary>
-        public ImportReport ValidateDocumentAgainstOpenTrip(string json, DocumentKind kind, string sourceLabel) =>
-            TripPackage.ValidateDocument(_app.Session.Data, json, kind, sourceLabel);
+        public ImportReport ValidateDocumentAgainstOpenTrip(string json, DocumentKind kind, string sourceLabel, string outlineBookId = null) =>
+            TripPackage.ValidateDocument(_app.Session.Data, json, kind, sourceLabel, outlineBookId);
 
         /// <summary>Commit a whole-trip report (zip/folder/bundle) into the library, replacing an existing trip with the same id.</summary>
         public string CommitWholeTrip(ImportReport report) => TripPackage.Commit(report, overwrite: true);

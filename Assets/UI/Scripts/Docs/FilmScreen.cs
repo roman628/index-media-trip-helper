@@ -3,6 +3,7 @@ using System.Linq;
 using MediaTrip.Model;
 using MediaTrip.Search;
 using MediaTrip.Status;
+using MediaTrip.UI.Shell;
 using MediaTrip.UI.ViewModels;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -81,7 +82,6 @@ namespace MediaTrip.UI.Docs
                 var editing = d.EditingCaptureId != null;
                 var cap = d.Save(s, day);
                 F.Draft = null; F.PlanOpen = false;
-                app.State.SL.VideoId = null;
                 app.Nav(Screen.Summary);
                 app.State.SM.Day = cap.DayId;
                 app.Render();
@@ -176,25 +176,27 @@ namespace MediaTrip.UI.Docs
                 var idx = i; var p = d.People[i];
                 smes.Add(U.ChipX(U.Esc(p.Name + (string.IsNullOrEmpty(p.Title) ? "" : " · " + p.Title)), () => { d.People.RemoveAt(idx); app.RenderKeepFocus(null); }, "wrapok"));
             }
-            var smeQ = U.Input("", "+ name", null, false, "h44").W(180);
-            smeQ.name = "film.sme";
-            smeQ.style.marginBottom = 8;
-            app.ClosePopupWhenBlurred(smeQ);
-            smeQ.RegisterValueChangedCallback(e =>
+            fSme.Add(smes);
+            // One input: fuzzy-finds anyone known on the trip (their title comes with them), or adds
+            // the name as typed with the title from the box beside it.
+            var smeTitle = U.Input(d.PersonTitle, "Title", v => d.PersonTitle = v, false, "h44").W(app.Layout.Phone ? 130 : 200);
+            smeTitle.name = "film.smeTitle";
+            var smeQ = PickerField.Build(app, "film.sme", d.PersonName, "+ SME name", v => d.PersonName = v, q =>
             {
-                var q = e.newValue;
-                if (string.IsNullOrWhiteSpace(q)) { app.ClosePopup(); return; }
-                var box = new VisualElement().Cls("sugg");
-                foreach (var m in s.Search.SuggestNames(q, NameScope.Sme, 3).Where(m => d.People.All(x => x.Name != m.Item.Name)))
+                var rows = new List<PickerField.Row>();
+                foreach (var m in s.Search.SuggestNames(q, NameScope.Sme, 4).Where(m => d.People.All(x => x.Name != m.Item.Name)))
                 {
                     var n = m.Item;
-                    box.Add(U.Tap(() => { d.AddPerson(n.Name, n.Title, n.Person?.Id); app.ClosePopup(); app.RenderKeepFocus("film.sme"); }, "sugg-row", U.Text(U.Esc(n.Name), "bold grow"), U.Sub(U.Esc(n.Title ?? ""))));
+                    rows.Add(new PickerField.Row { Title = n.Name, Sub = string.IsNullOrEmpty(n.Title) ? "no title on file" : n.Title, Pick = () => { d.AddPerson(n.Name, n.Title, n.Person?.Id); app.RenderKeepFocus("film.sme"); } });
                 }
-                box.Add(U.Tap(() => { d.AddPerson(q.Trim(), ""); app.ClosePopup(); app.RenderKeepFocus("film.sme"); }, "sugg-row", U.Text("“" + U.Esc(q.Trim()) + "”").Cls("grow")));
-                app.ShowPopup(smeQ, box, 340, 300);
-            });
-            smes.Add(smeQ);
-            fSme.Add(smes);
+                var typed = q.Trim();
+                if (!rows.Any(r => string.Equals(r.Title, typed, System.StringComparison.OrdinalIgnoreCase)))
+                    rows.Add(new PickerField.Row { IsCreate = true, Title = "Add “" + typed + "”", Sub = string.IsNullOrWhiteSpace(d.PersonTitle) ? "type their title in the box beside the name" : d.PersonTitle,
+                        Pick = () => { d.AddPerson(typed, d.PersonTitle); app.RenderKeepFocus("film.sme"); } });
+                return rows;
+            }, "h44 grow");
+            smeQ.style.marginRight = 8;
+            fSme.Add(U.Row(smeQ, smeTitle));
 
             // ---- cameras
             var fCam = U.Field("Cameras", U.Stepper(d.CameraCount, delta => { d.CameraCount = Mathf.Clamp(d.CameraCount + delta, 1, 6); app.RenderKeepFocus(null); }));

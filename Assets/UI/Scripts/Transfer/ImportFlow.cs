@@ -15,13 +15,20 @@ namespace MediaTrip.UI.Transfer
     /// </summary>
     public static class ImportFlow
     {
-        public static void Begin(AppController app)
+        /// <summary>
+        /// Start an import. With <paramref name="expect"/> the import is for one kind of document
+        /// (the Outlines screen imports an outline into <paramref name="outlineBookId"/>); a file
+        /// of any other kind is refused before anything is loaded.
+        /// </summary>
+        public static void Begin(AppController app, DocumentKind? expect = null, string outlineBookId = null)
         {
+            app.State.IO.Expect = expect;
+            app.State.IO.OutlineBookId = expect == DocumentKind.Outline ? outlineBookId : null;
             app.Transfer.BeginImport(path =>
             {
                 if (path == null) FolderList(app);
                 else Stage(app, path);
-            }, m => { if (m != null) Fail(app, m); });
+            }, m => { if (m != null) Fail(app, m); }, expect != null ? "json" : "zip,json");
         }
 
         /// <summary>Validate a file (any route) and show the preview. Nothing is written.</summary>
@@ -33,6 +40,11 @@ namespace MediaTrip.UI.Transfer
                 var report = app.Transfer.ValidatePath(path);
                 io.PendingPath = path;
                 var label = Path.GetFileName(path);
+                if (io.Expect != null)
+                {
+                    var wrong = TripPackage.CheckExpectedKind(report, io.Expect.Value);
+                    if (wrong != null) { Fail(app, label + ": " + wrong); return; }
+                }
                 if (report.SingleDocumentKind != null && report.CanImport)
                 {
                     if (app.Session == null)
@@ -40,7 +52,7 @@ namespace MediaTrip.UI.Transfer
                         Fail(app, label + " is a single document. Open or create a trip first, then import it into that trip.");
                         return;
                     }
-                    report = app.Transfer.ValidateDocumentAgainstOpenTrip(File.ReadAllText(path), report.SingleDocumentKind.Value, label);
+                    report = app.Transfer.ValidateDocumentAgainstOpenTrip(File.ReadAllText(path), report.SingleDocumentKind.Value, label, io.OutlineBookId);
                 }
                 io.Report = report;
                 io.SourceLabel = label;
@@ -70,7 +82,7 @@ namespace MediaTrip.UI.Transfer
                     if (app.Session == null) { Fail(app, "Open a trip first."); return; }
                     var json = io.PendingPath != null ? File.ReadAllText(io.PendingPath) : null;
                     if (json == null) { Fail(app, "The file is gone; choose it again."); return; }
-                    TripPackage.ImportDocument(app.Session, json, r.SingleDocumentKind.Value, io.SourceLabel);
+                    TripPackage.ImportDocument(app.Session, json, r.SingleDocumentKind.Value, io.SourceLabel, io.OutlineBookId);
                     var label = io.SourceLabel;
                     io.Report = null; io.PendingPath = null;
                     app.CloseSheet();

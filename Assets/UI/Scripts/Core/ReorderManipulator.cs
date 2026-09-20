@@ -38,10 +38,16 @@ namespace MediaTrip.UI
 
         public bool Dragging => _row != null;
 
-        public ReorderManipulator(Action<List<string>> onReordered, Action<string, VisualElement> onHandleTap = null)
+        private readonly string _rowClass;
+        private readonly string _handleClass;
+
+        /// <param name="rowClass">Class of the rows this instance moves. Two instances with different classes can share one ScrollView (chapters, and the sections inside them).</param>
+        public ReorderManipulator(Action<List<string>> onReordered, Action<string, VisualElement> onHandleTap = null, string rowClass = RowClass, string handleClass = HandleClass)
         {
             _onReordered = onReordered;
             _onHandleTap = onHandleTap;
+            _rowClass = rowClass;
+            _handleClass = handleClass;
         }
 
         protected override void RegisterCallbacksOnTarget()
@@ -70,16 +76,16 @@ namespace MediaTrip.UI
         }
 
         private List<VisualElement> Rows() =>
-            _row?.parent == null ? new List<VisualElement>() : _row.parent.Children().Where(c => c.ClassListContains(RowClass)).ToList();
+            _row?.parent == null ? new List<VisualElement>() : _row.parent.Children().Where(c => c.ClassListContains(_rowClass)).ToList();
 
         private static List<string> Ids(IEnumerable<VisualElement> rows) => rows.Select(r => r.userData as string).ToList();
 
         private void OnDown(PointerDownEvent e)
         {
             if (_row != null) return;
-            var handle = Ancestor(e.target as VisualElement, HandleClass, target);
+            var handle = Ancestor(e.target as VisualElement, _handleClass, target);
             if (handle == null) return;
-            var row = Ancestor(handle, RowClass, target);
+            var row = Ancestor(handle, _rowClass, target);
             if (row == null) return;
             _row = row;
             _handle = handle;
@@ -158,7 +164,7 @@ namespace MediaTrip.UI
                 if (commit) _onHandleTap?.Invoke(row.userData as string, handle);
                 return;
             }
-            var after = row.parent == null ? before : Ids(row.parent.Children().Where(c => c.ClassListContains(RowClass)));
+            var after = row.parent == null ? before : Ids(row.parent.Children().Where(c => c.ClassListContains(_rowClass)));
             if (commit && !after.SequenceEqual(before)) _onReordered?.Invoke(after);
             else if (!commit) _onReordered?.Invoke(before);
         }

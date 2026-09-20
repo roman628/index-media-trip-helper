@@ -45,9 +45,7 @@ namespace MediaTrip.UI.Shell
             foreach (var m in r.Photos)
             {
                 var p = m.Item;
-                var ch = d.FindChapter(p.ChapterId);
-                var book = d.FindBook(p.BookId);
-                var sub = "Book " + (book?.Number.ToString() ?? "?") + (p.HeroType != HeroType.None ? " · " + U.HeroLabel(p.Photo, ch) : "");
+                var sub = Fmt.PhotoWhere(d, p);
                 var icon = new Glyph(GlyphKind.Frame, 20); icon.style.marginLeft = 12; icon.style.marginRight = 24;
                 host.Add(U.Tap(() => app.Nav(Screen.Covers), "item", icon,
                     U.Col(U.Text(U.Esc(p.Description), "title"), U.Sub(sub)).Cls("grow"),

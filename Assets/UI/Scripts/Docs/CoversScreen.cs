@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using MediaTrip.Model;
 using MediaTrip.Query;
@@ -11,9 +12,13 @@ namespace MediaTrip.UI.Docs
 {
     /// <summary>
     /// Every book's cover and chapter heroes on one board. Each slot shows what was planned and
-    /// what is assigned; an empty slot is obvious. A slot is filled by assignment (the planned
-    /// photo once shot, another master-list photo, or a new one described on the spot), never
-    /// by a checkbox, and planned and assigned both stay visible.
+    /// what is assigned; an empty slot is obvious. A slot is filled by assignment, never by a
+    /// checkbox, and planned and assigned both stay visible.
+    ///
+    /// The slot sheet has one input: it fuzzy-searches every photo of every book (each result
+    /// says which book, which chapter, and whether it is a cover or which chapter's hero) and
+    /// offers to create what was typed when nothing matches. Its notes are the chapter's notes,
+    /// the same ones Outlines shows.
     /// </summary>
     public static class CoversScreen
     {
@@ -28,13 +33,13 @@ namespace MediaTrip.UI.Docs
             var top = U.Row(U.Sub(U.Plural(total, "slot")).Cls("grow"), total == 0 ? null : empty > 0 ? U.Pill(empty + " empty", "fillbad md") : U.Pill("All assigned", "fill md")).MinH(44).Mt(6);
             top.style.paddingRight = 10;
             scroll.Add(top);
-            if (total == 0) scroll.Add(U.Sub("Books and chapters come from Trip and the Shot list."));
+            if (total == 0) scroll.Add(U.Sub("Books come from Trip, chapters from the Shot list or Outlines."));
 
             int cols = L.BoardColumns;
             float width = Mathf.Floor((L.Width - (L.Land ? 96 : 0) - 22 - cols * 10) / cols);
             foreach (var cb in board)
             {
-                scroll.Add(U.H2("Book " + cb.Book.Number + " · " + U.Esc(cb.Book.Name)).Mt(14).Mb(8));
+                scroll.Add(U.Text(U.Esc(Fmt.BookName(cb.Book)), "h2 wraptext").Mt(14).Mb(8));
                 var row = U.Row().Cls("wrap stretch");
                 foreach (var slot in cb.Slots) row.Add(SlotCard(app, slot, width));
                 scroll.Add(row);
@@ -47,11 +52,12 @@ namespace MediaTrip.UI.Docs
         private static VisualElement SlotCard(AppController app, CoverSlot slot, float width)
         {
             var C = app.State.CV;
-            var card = U.Tap(() => { C.SlotBook = slot.Book.Id; C.SlotKey = slot.Key; C.NewText = ""; C.Picking = false; app.Render(); }, "slot").On(slot.IsEmpty, "empty");
+            var card = U.Tap(() => { C.SlotBook = slot.Book.Id; C.SlotKey = slot.Key; C.Query = ""; app.Render(); }, "slot").On(slot.IsEmpty, "empty");
             card.style.width = width;
-            card.Add(U.Row(U.H3(U.Esc(SlotLabel(slot))).Cls("grow"), slot.IsEmpty ? U.Pill("Empty", "fillbad") : U.Pill("", "fill", GlyphKind.Check).Also(p => p.Q<Label>()?.Hide())).Cls("top-align"));
-            card.Add(Line("PLANNED", slot.Planned != null ? U.ShortDescription(slot.Planned.Description) : "—", "planned"));
-            foreach (var a in slot.Assigned) card.Add(Line(a.IsNew ? "NEW" : "ASSIGNED", U.ShortDescription(a.Text), "assigned"));
+            card.Add(U.Row(U.Name(U.Esc(SlotLabel(slot)), true, "h3 grow"), slot.IsEmpty ? U.Pill("Empty", "fillbad") : U.Pill("", "fill", GlyphKind.Check).Also(p => p.Q<Label>()?.Hide())).Cls("top-align"));
+            if (slot.PlannedPhotos.Count == 0) card.Add(Line("PLANNED", "—", "planned"));
+            foreach (var p in slot.PlannedPhotos) card.Add(Line("PLANNED", U.ShortDescription(p.Description), "planned"));
+            foreach (var a in slot.Assigned) card.Add(Line(a.Photo != null && a.Photo.IsNew ? "NEW" : "ASSIGNED", U.ShortDescription(a.Text), "assigned"));
             return card;
         }
 
@@ -71,88 +77,127 @@ namespace MediaTrip.UI.Docs
             if (C.SlotKey == null) return null;
             var slot = s.Queries.CoverSlot(C.SlotBook, C.SlotKey == "cover" ? null : C.SlotKey);
             if (slot == null) { C.SlotKey = null; return null; }
-            return C.Picking ? PickSheet(app, slot) : SlotSheet(app, slot);
+            return SlotSheet(app, slot);
         }
 
         private static VisualElement SlotSheet(AppController app, CoverSlot slot)
         {
-            var C = app.State.CV; var s = app.Session;
-            void Close() { C.SlotKey = null; app.State.Focus = null; app.Render(); }
+            var C = app.State.CV; var s = app.Session; var d = s.Data;
+            void Close() { C.SlotKey = null; C.Query = ""; app.State.Focus = null; app.Render(); }
             var body = U.Scroll().Named("cv-slot:" + slot.Book.Id + slot.Key);
 
             body.Add(U.Eyebrow("Planned"));
-            var planned = U.Row(U.Body(slot.Planned != null ? U.Esc(U.ShortDescription(slot.Planned.Description)) : "—").Cls("grow")).MinH(52);
-            planned.style.paddingTop = 6; planned.style.paddingBottom = 12;
-            if (slot.Planned != null && slot.Planned.Status == PhotoStatus.NotCaptured)
-                planned.Add(U.GlyphBtn(GlyphKind.Check, "Got it", () =>
-                {
-                    var day = app.DayForNow();
-                    CoverActions.GotPlanned(s, slot, day);
-                    app.Toast("Added to " + app.DayLabel(day));
-                }, "sm pri ml8", 16));
-            body.Add(planned);
-
-            body.Add(U.Eyebrow("Assigned"));
-            if (slot.IsEmpty) body.Add(U.Sub("Nothing yet.").Pad(6, 0));
-            foreach (var a in slot.Assigned)
+            if (slot.PlannedPhotos.Count == 0) body.Add(U.Sub("Nothing was planned for this slot.").Pad(6, 0));
+            foreach (var p in slot.PlannedPhotos)
             {
-                var row = U.Row(new Glyph(GlyphKind.Check, 18).Cls("ok-text").Mr(8), U.Text(U.Esc(U.ShortDescription(a.Text)), "bold grow")).MinH(48);
-                if (a.IsPlanned) row.Add(U.Pill("planned"));
-                else { var aid = a.Assignment.Id; row.Add(U.IconBtn(GlyphKind.Cross, () => s.RemoveHeroAssignment(aid), "ghost sm", 16)); }
+                var pid = p.Id;
+                var row = U.Row(U.Text(U.Esc(U.ShortDescription(p.Description)), "body grow wraptext")).MinH(52);
+                row.style.paddingTop = 4; row.style.paddingBottom = 4;
+                if (p.Status == PhotoStatus.NotCaptured)
+                    row.Add(U.GlyphBtn(GlyphKind.Check, "Got it", () =>
+                    {
+                        var day = app.DayForNow();
+                        CoverActions.GotPlanned(s, slot, day, pid);
+                        app.Toast("Assigned · added to " + app.DayLabel(day));
+                    }, "sm pri ml8", 16));
+                else
+                {
+                    // assigned because it was shot; taking that back unassigns it
+                    row.Add(U.Pill("assigned", "ok").Ml(8));
+                    row.Add(U.IconBtn(GlyphKind.Cross, () => ConfirmSheet.Open(app, "Unassign the planned photo?", "It is marked as not shot again and leaves the day's summary. The plan is not changed.", "Unassign",
+                        () => CoverActions.UngotPlanned(s, pid)), "ghost sm", 16));
+                }
                 body.Add(row);
             }
 
-            var add = U.Btn("Add", () => AddNew(app, slot), "pri ml8");
-            add.SetEnabled(!string.IsNullOrWhiteSpace(C.NewText));
-            var text = U.Input(C.NewText, "Something new…", v => { C.NewText = v; add.SetEnabled(!string.IsNullOrWhiteSpace(v)); }, false, "grow");
-            text.name = "cv.new";
-            body.Add(U.Row(text, add).Mt(10).Mb(8));
-            if (CoverActions.Candidates(s, slot).Count > 0)
+            var others = slot.Assigned.Where(a => !a.IsPlanned).ToList();
+            body.Add(U.Eyebrow("Also assigned").Mt(12));
+            if (others.Count == 0) body.Add(U.Sub("Nothing else.").Pad(6, 0));
+            foreach (var a in others)
             {
-                var pick = U.Btn("Use a photo from the list…", () => { C.Picking = true; app.Render(); }, "sm ghost accent left");
-                pick.style.alignSelf = Align.FlexStart;
-                body.Add(pick.Mb(10));
+                var aid = a.Assignment.Id;
+                var sub = a.Photo != null ? Fmt.PhotoWhere(d, a.Photo) : "described on the spot";
+                body.Add(U.Row(new Glyph(GlyphKind.Check, 18).Cls("ok-text").Mr(8),
+                    U.Col(U.Text(U.Esc(U.ShortDescription(a.Text)), "bold wraptext"), U.Sub(U.Esc(sub))).Cls("grow"),
+                    U.IconBtn(GlyphKind.Cross, () => s.RemoveHeroAssignment(aid), "ghost sm", 16)).MinH(52));
             }
 
-            var ch = slot.Chapter == null ? null : s.Data.FindOutline(slot.Book.Id)?.Chapters.FirstOrDefault(c => c.Id == slot.Chapter.Id);
-            if (ch != null) body.Add(OutlinesScreen.ChapterNotes(app, slot.Book.Id, ch, true));
+            // ---- one box: an existing photo, or a new one
+            var picker = PickerField.Build(app, "cv.pick", C.Query, "Find a photo, or type a new one…", v => C.Query = v, q => PickRows(app, slot, q));
+            body.Add(U.Row(picker).Mt(12).Mb(14));
+
+            if (slot.Chapter != null)
+            {
+                var chId = slot.Chapter.Id;
+                body.Add(U.Eyebrow("Chapter notes").Mb(6));
+                var notes = U.Input(s.NoteText(chId), "Notes…", v => app.Edit(() => s.SetNote(slot.Book.Id, chId, null, v)), true, "h72");
+                notes.name = "cv.notes";
+                body.Add(notes);
+            }
 
             VisualElement foot = null;
             if (slot.Chapter != null)
-            {
-                foot = U.GlyphBtn(GlyphKind.Lines, "Open chapter in Outlines", () =>
-                {
-                    var first = ch?.Sections.FirstOrDefault()?.Id;
-                    C.SlotKey = null;
-                    app.OpenSection(slot.Book.Id, first);
-                }, "mt12");
-            }
-            return app.Sheet(620, Close, app.SheetHead("Book " + slot.Book.Number + " · " + U.Esc(SlotLabel(slot)), Close), body, foot);
+                foot = U.GlyphBtn(GlyphKind.Lines, "Open chapter in Outlines", () => { var b = slot.Book.Id; var c = slot.Chapter.Id; C.SlotKey = null; app.OpenChapter(b, c); }, "mt12");
+            return app.Sheet(640, Close, app.SheetHead(U.Esc(SlotLabel(slot)), Close), U.Sub(U.Esc(Fmt.BookName(slot.Book))).Mb(10), body, foot);
         }
 
-        private static void AddNew(AppController app, CoverSlot slot)
+        private static List<PickerField.Row> PickRows(AppController app, CoverSlot slot, string q)
         {
-            var C = app.State.CV;
-            if (string.IsNullOrWhiteSpace(C.NewText)) return;
-            var day = app.DayForNow();
-            CoverActions.AssignNew(app.Session, slot, C.NewText, day);
-            C.NewText = "";
-            app.Render();
-            app.Toast("Assigned · added to " + app.DayLabel(day));
+            var C = app.State.CV; var s = app.Session; var d = s.Data;
+            var found = CoverActions.Search(s, slot, q);
+            var rows = new List<PickerField.Row>();
+            foreach (var p in found)
+            {
+                var photo = p;
+                rows.Add(new PickerField.Row
+                {
+                    Lead = U.StPhoto(p.Status, 28, p.HeroType != HeroType.None).Mr(10),
+                    Title = U.ShortDescription(p.Description),
+                    Sub = Fmt.PhotoWhere(d, p) + (p.Status == PhotoStatus.Captured ? " · shot" : " · not shot yet"),
+                    Pick = () => PickExisting(app, slot, photo),
+                });
+            }
+            if (!CoverActions.IsExactMatch(q, found))
+            {
+                var text = q.Trim();
+                rows.Add(new PickerField.Row
+                {
+                    Lead = new Glyph(GlyphKind.Plus, 18).Mr(10), IsCreate = true, Title = "New photo “" + text + "”",
+                    Sub = "Goes on the working shot list for " + Fmt.BookName(slot.Book) + (slot.Chapter != null ? " · Ch." + slot.Chapter.Number : "") + ", marked new",
+                    Pick = () =>
+                    {
+                        var day = app.DayForNow();
+                        CoverActions.AssignNew(s, slot, text, day);
+                        C.Query = "";
+                        app.Render();
+                        app.Toast("Assigned · on the shot list and " + app.DayLabel(day));
+                    },
+                });
+            }
+            return rows;
         }
 
-        private static VisualElement PickSheet(AppController app, CoverSlot slot)
+        /// <summary>
+        /// A photo of another book is not moved or shared without asking: photos can belong to
+        /// more than one book. Cancel is a real answer; the slot sheet is still there after it.
+        /// </summary>
+        private static void PickExisting(AppController app, CoverSlot slot, PhotoItem photo)
         {
             var C = app.State.CV; var s = app.Session;
-            void Back() { C.Picking = false; app.Render(); }
-            var list = U.Scroll();
-            foreach (var p in CoverActions.Candidates(s, slot))
+            void Assign(bool move)
             {
-                var pid = p.Id;
-                list.Add(U.Tap(() => { CoverActions.AssignExisting(s, slot, pid); C.Picking = false; app.Render(); }, "item",
-                    U.StPhoto(p.Status, 30, p.HeroType != HeroType.None).Mr(12), U.Text(U.Esc(U.ShortDescription(p.Description)), "grow")));
+                CoverActions.AssignExisting(s, slot, photo.Id, move);
+                C.Query = "";
+                app.Render();
+                app.Toast(move ? "Moved to " + Fmt.BookName(slot.Book) + " and assigned" : "Assigned");
             }
-            return app.Sheet(620, Back, app.SheetHead("Assign to " + U.Esc(SlotLabel(slot)), Back), list);
+            if (!CoverActions.IsFromAnotherBook(slot, photo)) { Assign(false); return; }
+            var lines = new List<string> { "“" + U.ShortDescription(photo.Description) + "” is already somewhere else:" };
+            lines.AddRange(CoverActions.WhereAssigned(s, photo));
+            lines.Add("Move puts it in " + Fmt.BookName(slot.Book) + " on the working shot list (the original keeps it where it was printed). Assign to both leaves it where it is and uses it here too.");
+            ChoiceSheet.Open(app, "This photo belongs to another book", lines,
+                new ChoiceSheet.Option("Move", () => Assign(true)),
+                new ChoiceSheet.Option("Assign to both", () => Assign(false)));
         }
     }
 }

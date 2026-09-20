@@ -55,6 +55,7 @@ Label { color: var(--tx); white-space: normal; -unity-text-align: middle-left; m
 .mono { font-size: 14px; }
 .nowrap { white-space: nowrap; }
 .ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wraptext { white-space: normal; }
 
 /* ---------- buttons ---------- */
 .btn {
@@ -90,6 +91,9 @@ Label { color: var(--tx); white-space: normal; -unity-text-align: middle-left; m
 
 /* ---------- inputs ---------- */
 .inp { height: 52px; margin: 0; flex-shrink: 0; }
+/* A field that shares a row gives way to what is beside it; long text scrolls inside the field instead of pushing a button off the screen. */
+.inp.grow { flex-basis: 0; flex-shrink: 1; min-width: 0; }
+.inp.bold > .unity-text-field__input { -unity-font-style: bold; }
 .inp > .unity-text-field__input, .inp .unity-base-text-field__input {
     border-width: var(--bw); border-color: var(--bd); border-radius: 10px;
     padding: 0 14px; font-size: 17px; background-color: var(--sf); color: var(--tx);
@@ -166,9 +170,11 @@ Label { color: var(--tx); white-space: normal; -unity-text-align: middle-left; m
 }
 .tog Label { white-space: nowrap; font-size: 15px; -unity-font-style: bold; }
 .tog:hover { background-color: var(--sf2); }
-.tog .knob { width: 44px; height: 28px; border-radius: 14px; background-color: var(--bd); margin-left: 10px; flex-direction: row; align-items: center; padding: 0 3px; }
-.tog .knob .dot { width: 22px; height: 22px; border-radius: 11px; background-color: var(--sf); }
-.tog.on .knob { background-color: var(--ac); justify-content: flex-end; }
+/* The knob is placed, not flowed: 3 px from every edge of the track when off, and hard against the other side when on. */
+.tog .knob { width: 44px; height: 28px; border-radius: 14px; background-color: var(--bd); margin-left: 10px; padding: 0; flex-shrink: 0; }
+.tog .knob .thumb { position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 11px; margin: 0; background-color: var(--sf); }
+.tog.on .knob { background-color: var(--ac); }
+.tog.on .knob .thumb { left: 19px; }
 
 .check {
     width: 48px; height: 48px; border-radius: 10px; border-width: 3px; border-color: var(--bd);
@@ -322,6 +328,29 @@ Label { color: var(--tx); white-space: normal; -unity-text-align: middle-left; m
 .swcard { width: 236px; margin: 0 12px 12px 0; padding: 14px; border-radius: 14px; border-width: 3px; border-color: var(--bd); background-color: var(--sf); color: var(--tx); flex-direction: column; align-items: flex-start; }
 .k-phone .swcard { width: 100%; margin-right: 0; }
 .sw { width: 24px; height: 24px; border-radius: 6px; border-width: 1px; border-color: var(--bd); margin: 0 4px 4px 0; }
+
+/* ---------- rows that open in place (shot list videos, outline chapters and sections) ---------- */
+.xrow { flex-direction: column; border-radius: 12px; border-width: var(--bw); border-color: rgba(0,0,0,0); margin-bottom: 2px; flex-shrink: 0; }
+.xrow.on { background-color: var(--sf); border-color: var(--bd); margin-bottom: 8px; }
+.xrow.chapter { margin-top: 6px; }
+.xrow.section { margin-left: 8px; }
+.xhead { flex-direction: row; align-items: center; min-height: 56px; padding: 6px 8px; border-radius: 12px; min-width: 0; }
+.xhead:hover { background-color: var(--sf2); }
+.xhead .title { font-size: 17px; -unity-font-style: bold; }
+.xbody { flex-direction: column; padding: 4px 14px 14px 14px; }
+.chev { color: var(--tx2); }
+.tag { flex-direction: row; align-items: center; height: 22px; padding: 0 8px; margin: 3px 6px 0 0; border-radius: 11px; background-color: var(--sf2); flex-shrink: 1; min-width: 0; }
+.tag Label { font-size: 12px; -unity-font-style: bold; color: var(--tx2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tag.ok { background-color: var(--ok); }
+.tag.ok Label { color: var(--okTx); }
+.bookbar { padding: 10px 4px 0 12px; }
+
+/* ---------- outline editor ---------- */
+.ochap { flex-direction: column; flex-shrink: 0; margin-bottom: 6px; border-radius: 12px; border-width: var(--bw); border-color: rgba(0,0,0,0); }
+.osec { flex-direction: column; flex-shrink: 0; border-radius: 10px; border-width: var(--bw); border-color: rgba(0,0,0,0); }
+.osecs { flex-direction: column; margin-left: 20px; }
+.ochap.drag, .osec.drag { border-color: var(--ac); background-color: var(--sf); opacity: 0.9; }
+.handle { width: 44px; height: 44px; align-items: center; justify-content: center; color: var(--tx2); flex-shrink: 0; }
 
 /* ---------- spacing utilities: last, so they win over a component's own margin ---------- */
 .mb4 { margin-bottom: 4px; } .mb6 { margin-bottom: 6px; } .mb8 { margin-bottom: 8px; } .mb10 { margin-bottom: 10px; }

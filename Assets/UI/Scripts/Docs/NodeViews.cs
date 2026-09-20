@@ -61,12 +61,15 @@ namespace MediaTrip.UI.Docs
             if (paste != null) add.Add(U.Btn("Paste…", () => { app.State.Paste = paste; app.Render(); }, "sm ghost accent"));
             host.Add(add);
 
+            // Several outliners can be open at once (expanded videos, expanded sections): each
+            // answers for its own bullets and passes the rest on.
+            var next = app.AccessoryAction;
             app.AccessoryAction = act =>
             {
                 var name = app.FocusedFieldName;
                 if (!name.StartsWith("node:")) return false;
                 var nodeId = name.Substring(5);
-                if (NodeTree.Locate(ed.Roots, nodeId) == null) return false;
+                if (NodeTree.Locate(ed.Roots, nodeId) == null) return next != null && next(act);
                 return Do(app, ed, nodeId, act);
             };
             return host;
@@ -148,7 +151,9 @@ namespace MediaTrip.UI.Docs
         {
             var p = app.State.Paste;
             var tree = IndentedTextParser.Parse(p.Text ?? "", new PasteOptions());
-            var ed = p.Kind == "section" ? app.Session.Outline.Bullets(p.BookId, p.Id) : app.Session.PlanEditor.Notes(p.Id);
+            var ed = p.Kind == "section"
+                ? app.Session.Outline.Bullets(p.BookId, p.Id)
+                : new MediaTrip.Authoring.PlanEdits(app.Session, p.Working ? MediaTrip.Authoring.PlanEditMode.Working : MediaTrip.Authoring.PlanEditMode.Original).Notes(p.Id);
             if (ed == null) { app.Toast("Nothing to paste into"); return; }
             if (replace) ed.Replace(tree); else ed.Append(tree);
             ed.Relabel(scheme);
