@@ -120,3 +120,6 @@ Thumbs.db
 /docs/
 /AGENTS.md
 /.claude/
+
+# Visual Studio project upgrade log
+UpgradeLog*.htm
