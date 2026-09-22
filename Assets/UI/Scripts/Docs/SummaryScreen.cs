@@ -75,7 +75,8 @@ namespace MediaTrip.UI.Docs
                 var parts = new List<string>();
                 if (time.Length > 0) parts.Add(time);
                 parts.Add(Fmt.BookChapter(d, c.BookId, c.ChapterId));
-                parts.Add(c.PlannedNumber != null ? "#" + c.PlannedNumber : e.Item != null && e.Item.Origin == PlanItemOrigin.Combined ? e.Item.DisplayNumber : "unplanned");
+                if (c.WasPlannedAs != null) parts.Add("was " + c.WasPlannedAs);
+                else parts.Add(c.PlannedNumber != null ? "#" + c.PlannedNumber : e.Item != null && e.Item.Origin == PlanItemOrigin.Combined ? e.Item.DisplayNumber : "unplanned");
                 if (c.CameraCount != null) parts.Add(c.CameraCount + " cam");
                 var photos = (c.Photos ?? new List<CapturePhoto>()).Count(p => p.Captured);
                 if (photos > 0) parts.Add(U.Plural(photos, "photo"));
@@ -87,7 +88,7 @@ namespace MediaTrip.UI.Docs
                 var p = e.PhotoCapture; var id = p.Id;
                 glyph = GlyphKind.Frame;
                 title = PhotoTitle(app, p);
-                sub = (time.Length > 0 ? time + " · " : "") + "photo";
+                sub = (time.Length > 0 ? time + " · " : "") + "photo" + (p.WasPlannedAs != null ? " · was " + p.WasPlannedAs : p.PhotoId == null ? " · not on the shot list" : "");
                 open = () => { Sm.OpenPhoto = id; Sm.OpenCapture = null; app.Render(); };
             }
             var head = U.Row(new Glyph(glyph, 16).Mr(8), U.H3(U.Esc(title)).Cls("grow"));
@@ -139,7 +140,7 @@ namespace MediaTrip.UI.Docs
             var Sm = app.State.SM; var s = app.Session; var d = s.Data;
             void Close() { Sm.OpenCapture = null; app.Render(); }
             var body = U.Scroll();
-            body.Add(U.Sub(U.Esc(Fmt.BookChapter(d, c.BookId, c.ChapterId))).Mb(8));
+            body.Add(U.Sub(U.Esc(Fmt.BookChapter(d, c.BookId, c.ChapterId) + (c.WasPlannedAs != null ? " · was " + c.WasPlannedAs : c.PlanVideoId == null ? " · unplanned" : ""))).Mb(8));
             body.Add(WhenEditor(app, c.Id, c.DayId, c.At));
             void F(string k, string v) { if (!string.IsNullOrWhiteSpace(v)) body.Add(U.KV(k, U.Esc(v))); }
             F("SME", string.Join("\n", (c.People ?? new List<CapturePerson>()).Select(p => p.Name + (string.IsNullOrEmpty(p.Title) ? "" : " · " + p.Title))));
@@ -200,7 +201,7 @@ namespace MediaTrip.UI.Docs
             var Sm = app.State.SM; var s = app.Session;
             void Close() { Sm.OpenPhoto = null; app.Render(); }
             var photo = p.PhotoId != null ? s.Plan.FindPhoto(p.PhotoId) : null;
-            var body = U.Col(U.Sub(U.Esc(photo != null ? Fmt.PhotoWhere(s.Data, photo) : "unplanned photo")).Mb(8), WhenEditor(app, p.Id, p.DayId, p.At));
+            var body = U.Col(U.Sub(U.Esc(photo != null ? Fmt.PhotoWhere(s.Data, photo) : p.WasPlannedAs != null ? "was " + p.WasPlannedAs : "Not on the shot list yet. Pick it in Covers, Outlines or a video's photos to file it.")).Mb(8), WhenEditor(app, p.Id, p.DayId, p.At));
             var foot = U.Row(U.Btn("Remove", () => { s.RemovePhotoCapture(p.Id); Sm.OpenPhoto = null; app.Render(); }, "ghost danger"), U.Grow()).Mt(16);
             return app.Sheet(620, Close, app.SheetHead(U.Esc(U.ShortDescription(PhotoTitle(app, p))), Close), body, foot);
         }

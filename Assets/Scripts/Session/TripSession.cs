@@ -388,9 +388,11 @@ namespace MediaTrip.Session
         /// <summary>
         /// Remove an amendment and put things back: captures of a combined result go back onto
         /// the first source with its planned title and number; a rename's captures get the
-        /// planned title back; an unplanned add takes its captures (and their assignments) with it.
+        /// planned title back. Undoing an add keeps what was filmed of it as an unplanned
+        /// capture tagged with what it was, unless <paramref name="deleteCaptures"/> says the
+        /// capture was a mistake too.
         /// </summary>
-        public void UndoAmendment(string amendmentId)
+        public void UndoAmendment(string amendmentId, bool deleteCaptures = false)
         {
             var a = Data.FindAmendment(amendmentId);
             if (a == null) return;
@@ -438,7 +440,12 @@ namespace MediaTrip.Session
                         break;
                     }
                     foreach (var c in Data.Captures.Captures.Where(c => c.PlanVideoId != null && results.Contains(c.PlanVideoId)).ToList())
-                        RemoveCapture(c.Id);
+                    {
+                        if (deleteCaptures) RemoveCapture(c.Id);
+                        else DetachCapture(c.Id);
+                    }
+                    foreach (var id in results)
+                        Data.Captures.OutlineAssignments.RemoveAll(o => o.MediaRef?.Kind == MediaRefKind.PlannedVideo && o.MediaRef.Id == id);
                     break;
                 }
             }

@@ -139,12 +139,12 @@ namespace MediaTrip.Tests
         }
 
         [Test]
-        public void UndoAmendment_Rename_RestoresTitle_Add_RemovesCapture_Drop_JustGoes()
+        public void UndoAmendment_Rename_RestoresTitle_Add_RemovesCaptureWhenAsked_Drop_JustGoes()
         {
             var s = S();
             s.UndoAmendment("am-002");
             Assert.AreEqual("Filling Out the Entry Permit", s.Data.FindCapture("cap-002").Title);
-            s.UndoAmendment("am-003");
+            s.UndoAmendment("am-003", deleteCaptures: true);
             Assert.IsNull(s.Data.FindCapture("cap-004"));
             Assert.IsNull(s.Plan.FindItem("v-a001"));
             s.UndoAmendment("am-004");

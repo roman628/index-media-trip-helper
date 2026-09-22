@@ -132,7 +132,7 @@ namespace MediaTrip.UI.Shell
                 list.Add(("Backspace", "On an empty bullet: delete it"));
             }
             if (screen == Screen.ShotList && edit) list.Add(("Enter", "In a video or photo name: done, collapse the row"));
-            if (screen == Screen.ShotList && !edit) list.Add((m + " ] · " + m + " [", "Expand all · Collapse all"));
+            if ((screen == Screen.ShotList && !edit) || screen == Screen.Outlines) list.Add((m + " ] · " + m + " [", "Expand all · Collapse all"));
             return list.ToArray();
         }
 

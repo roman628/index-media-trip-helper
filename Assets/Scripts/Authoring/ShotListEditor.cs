@@ -528,7 +528,7 @@ namespace MediaTrip.Authoring
         /// <summary>Take a plan item id out of captures and amendments without deleting either.</summary>
         internal void DetachPlanItem(string id)
         {
-            foreach (var c in D.Captures.Captures.Where(c => c.PlanVideoId == id)) c.PlanVideoId = null;
+            foreach (var c in D.Captures.Captures.Where(c => c.PlanVideoId == id).ToList()) _s.DetachCapture(c.Id);
             foreach (var am in D.Captures.Amendments.ToList())
             {
                 bool named = (am.Targets?.Remove(id) ?? false) | (am.Results?.Remove(id) ?? false);
@@ -546,7 +546,7 @@ namespace MediaTrip.Authoring
             foreach (var c in D.Captures.Captures)
                 foreach (var cp in c.Photos ?? new List<CapturePhoto>())
                     if (cp.PhotoId == p.Id) { cp.PhotoId = null; if (string.IsNullOrEmpty(cp.Text)) cp.Text = p.Description; }
-            foreach (var pc in D.Captures.PhotoCaptures.Where(x => x.PhotoId == p.Id)) { pc.PhotoId = null; if (string.IsNullOrEmpty(pc.Text)) pc.Text = p.Description; }
+            foreach (var pc in D.Captures.PhotoCaptures.Where(x => x.PhotoId == p.Id)) { pc.PhotoId = null; if (string.IsNullOrEmpty(pc.Text)) pc.Text = p.Description; pc.WasPlannedAs = "photo: " + p.Description; }
             D.Captures.HeroAssignments.RemoveAll(h => h.PhotoId == p.Id);
             DetachPlanItem(p.Id);
         }

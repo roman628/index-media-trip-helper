@@ -87,6 +87,21 @@ namespace MediaTrip.UI.ViewModels
             return s.AssignHero(slot.Book.Id, slot.Chapter?.Id, photoId, null);
         }
 
+        /// <summary>
+        /// A photo typed in the field takes the slot: it is filed as a real photo of this book
+        /// (and chapter) on the working list, the records that logged it point at it, and it
+        /// is assigned. A stand-alone photo capture of it is placed on the chapter in Outlines.
+        /// </summary>
+        public static HeroAssignment FileAndAssign(TripSession s, CoverSlot slot, LoosePhoto loose)
+        {
+            if (slot == null || loose == null) return null;
+            var id = s.FilePhoto(loose.Text, slot.Book.Id, slot.Chapter?.Id, "Filed from Covers for " + (slot.IsCover ? "the cover" : "the chapter hero") + ".");
+            var pc = loose.PhotoCaptures.FirstOrDefault();
+            if (slot.Chapter != null && pc != null)
+                s.Assign(new MediaRef(MediaRefKind.PhotoCapture, pc.Id), slot.Book.Id, slot.Chapter.Id, null, null, AssignmentSource.Manual, null, true);
+            return s.AssignHero(slot.Book.Id, slot.Chapter?.Id, id, null, pc?.Id);
+        }
+
         public static bool IsFromAnotherBook(CoverSlot slot, PhotoItem photo) => photo != null && !photo.Photo.BelongsToBook(slot.Book.Id);
 
         /// <summary>Where a photo already is: its own book and use, and every slot it is assigned to. For the "already assigned" dialog.</summary>

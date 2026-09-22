@@ -28,8 +28,8 @@ namespace MediaTrip.UI.ViewModels
         public string BRoll = "N/A";
         public int CameraCount = 1;
         public List<CapturePerson> People = new List<CapturePerson>();
-        public string PersonName = "";
-        public string PersonTitle = "";
+        /// <summary>The SME being typed: name, then title, then Add.</summary>
+        public SmeDraft Sme = new SmeDraft();
         public string Location = "";
         public string Notes = "";
         /// <summary>photoId -> captured, for the picked item's photoRefs.</summary>
@@ -137,8 +137,7 @@ namespace MediaTrip.UI.ViewModels
         {
             if (string.IsNullOrWhiteSpace(name)) return;
             People.Add(new CapturePerson { PersonId = personId, Name = name.Trim(), Title = (title ?? "").Trim() });
-            PersonName = "";
-            PersonTitle = "";
+            Sme.Clear();
         }
 
         /// <summary>Write the capture. Returns it. Unplanned titles get an "add" amendment first.</summary>
@@ -163,10 +162,11 @@ namespace MediaTrip.UI.ViewModels
 
             foreach (var p in People)
             {
-                if (p.PersonId != null) continue;
-                var existing = s.Search.FindPersonByName(p.Name);
-                var person = existing ?? s.FindOrAddPerson(p.Name, Org.Client, PersonRole.Sme, p.Title);
+                var person = p.PersonId != null ? s.Data.FindPerson(p.PersonId) : null;
+                if (person == null) person = s.Search.FindPersonByName(p.Name) ?? s.FindOrAddPerson(p.Name, Org.Client, PersonRole.Sme, p.Title);
                 p.PersonId = person.Id;
+                // a title typed for someone who had none on file goes on file
+                if (string.IsNullOrWhiteSpace(person.Title) && !string.IsNullOrWhiteSpace(p.Title)) s.EditTrip(_ => person.Title = p.Title.Trim());
             }
 
             Capture cap;

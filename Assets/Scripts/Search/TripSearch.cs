@@ -249,6 +249,13 @@ namespace MediaTrip.Search
             }, null, Options.MinScore, maxResults);
         }
 
+        /// <summary>
+        /// Free-text photos (typed while filming or in the summary) matching a query. They are
+        /// not on the shot list yet; picking one anywhere files it. See <see cref="Query.LoosePhotos"/>.
+        /// </summary>
+        public List<ScoredMatch<Query.LoosePhoto>> SearchLoosePhotos(string query, int maxResults = 5) =>
+            FuzzyMatcher.Rank(query ?? "", Query.LoosePhotos.Of(Data), lp => new[] { lp.Text }, null, Options.MinScore, maxResults);
+
         public class SectionHit
         {
             public string BookId;

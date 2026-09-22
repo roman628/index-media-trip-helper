@@ -5,6 +5,7 @@ using System.Linq;
 using MediaTrip.Authoring;
 using MediaTrip.Model;
 using MediaTrip.Persistence;
+using MediaTrip.Query;
 using MediaTrip.Status;
 using Newtonsoft.Json.Linq;
 
@@ -216,6 +217,72 @@ namespace MediaTrip.Session
                 NewTitle = title.Trim(), NewBookId = bookId, NewChapterId = chapterId,
             });
             return id;
+        }
+
+        // ------------------------------------------------------------------
+        // Free-text photos become fileable
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// File a photo that was typed as free text (while filming, or in the summary's Photos
+        /// sheet): it becomes a real photo of the working shot list in the given book and
+        /// chapter, marked new, and every capture that recorded it under that text points at it
+        /// from now on. No duplicate, no retyping. Returns the photo's id. For filing into the
+        /// original list instead, see <see cref="Authoring.PlanEdits.FilePhoto"/>.
+        /// </summary>
+        public string FilePhoto(string text, string bookId, string chapterId, string reason = null)
+        {
+            var id = CreateMedia(MediaKind.Photo, text, bookId, chapterId, reason ?? "Filed from a photo typed in the field.");
+            RepointLoosePhoto(text, id);
+            return id;
+        }
+
+        /// <summary>Every capture that recorded the free-text photo now records <paramref name="photoId"/>. Returns how many records changed.</summary>
+        public int RepointLoosePhoto(string text, string photoId)
+        {
+            var key = LoosePhotos.KeyOf(text);
+            if (key.Length == 0) return 0;
+            int n = 0;
+            foreach (var c in Data.Captures.Captures)
+                foreach (var cp in c.Photos ?? new List<CapturePhoto>())
+                    if (cp.PhotoId == null && LoosePhotos.KeyOf(cp.Text) == key) { cp.PhotoId = photoId; cp.Text = null; n++; }
+            foreach (var pc in Data.Captures.PhotoCaptures)
+                if (pc.PhotoId == null && LoosePhotos.KeyOf(pc.Text) == key) { pc.PhotoId = photoId; pc.Text = null; pc.WasPlannedAs = null; n++; }
+            if (n > 0) MarkDirty(DocumentKind.Captures);
+            return n;
+        }
+
+        // ------------------------------------------------------------------
+        // Detaching: a plan item goes, its capture stays
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// "video 4: Try Step Verification" for what a capture was shot against, so a capture
+        /// kept after its plan item went can still say what it used to be.
+        /// </summary>
+        public string WasPlannedLabel(string planItemId)
+        {
+            var item = Plan.FindItem(planItemId);
+            if (item == null)
+            {
+                var v = Data.FindVideo(planItemId);
+                return v != null ? "video " + v.Number + ": " + v.Title : null;
+            }
+            var title = item.Origin == PlanItemOrigin.Added ? item.Title : item.OriginalTitle ?? item.Title;
+            return (item.Origin == PlanItemOrigin.Added ? "new video" : "video " + item.DisplayNumber) + ": " + title;
+        }
+
+        /// <summary>
+        /// The capture stops pointing at its plan item and becomes unplanned, keeping its title
+        /// and details, tagged with what it used to be. Its outline placement stays.
+        /// </summary>
+        public void DetachCapture(string captureId)
+        {
+            var c = Data.FindCapture(captureId) ?? throw new KeyNotFoundException("No capture " + captureId);
+            if (c.PlanVideoId == null) return;
+            c.WasPlannedAs = WasPlannedLabel(c.PlanVideoId) ?? c.WasPlannedAs;
+            c.PlanVideoId = null;
+            MarkDirty(DocumentKind.Captures);
         }
 
         /// <summary>Move a photo to another book (and chapter) in the working copy. The original list keeps it where it was printed.</summary>

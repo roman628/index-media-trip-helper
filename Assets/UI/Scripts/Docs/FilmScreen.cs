@@ -177,26 +177,9 @@ namespace MediaTrip.UI.Docs
                 smes.Add(U.ChipX(U.Esc(p.Name + (string.IsNullOrEmpty(p.Title) ? "" : " · " + p.Title)), () => { d.People.RemoveAt(idx); app.RenderKeepFocus(null); }, "wrapok"));
             }
             fSme.Add(smes);
-            // One input: fuzzy-finds anyone known on the trip (their title comes with them), or adds
-            // the name as typed with the title from the box beside it.
-            var smeTitle = U.Input(d.PersonTitle, "Title", v => d.PersonTitle = v, false, "h44").W(app.Layout.Phone ? 130 : 200);
-            smeTitle.name = "film.smeTitle";
-            var smeQ = PickerField.Build(app, "film.sme", d.PersonName, "+ SME name", v => d.PersonName = v, q =>
-            {
-                var rows = new List<PickerField.Row>();
-                foreach (var m in s.Search.SuggestNames(q, NameScope.Sme, 4).Where(m => d.People.All(x => x.Name != m.Item.Name)))
-                {
-                    var n = m.Item;
-                    rows.Add(new PickerField.Row { Title = n.Name, Sub = string.IsNullOrEmpty(n.Title) ? "no title on file" : n.Title, Pick = () => { d.AddPerson(n.Name, n.Title, n.Person?.Id); app.RenderKeepFocus("film.sme"); } });
-                }
-                var typed = q.Trim();
-                if (!rows.Any(r => string.Equals(r.Title, typed, System.StringComparison.OrdinalIgnoreCase)))
-                    rows.Add(new PickerField.Row { IsCreate = true, Title = "Add “" + typed + "”", Sub = string.IsNullOrWhiteSpace(d.PersonTitle) ? "type their title in the box beside the name" : d.PersonTitle,
-                        Pick = () => { d.AddPerson(typed, d.PersonTitle); app.RenderKeepFocus("film.sme"); } });
-                return rows;
-            }, "h44 grow");
-            smeQ.style.marginRight = 8;
-            fSme.Add(U.Row(smeQ, smeTitle));
+            // Name, then title, then Add: a match fills the name (and the title on file), a new
+            // name is kept as typed, and the title can be typed either way before Add.
+            fSme.Add(SmePicker.Build(app, "film.sme", d.Sme, n => d.People.Any(x => x.Name == n), sd => d.AddPerson(sd.Name, sd.Title, sd.PersonId)));
 
             // ---- cameras
             var fCam = U.Field("Cameras", U.Stepper(d.CameraCount, delta => { d.CameraCount = Mathf.Clamp(d.CameraCount + delta, 1, 6); app.RenderKeepFocus(null); }));

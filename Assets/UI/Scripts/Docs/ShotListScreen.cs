@@ -216,11 +216,9 @@ namespace MediaTrip.UI.Docs
             if (active)
             {
                 Item(GlyphKind.Pencil, "Rename", () => Amend(app, item.Id, "rename"));
-                if (item.Origin == PlanItemOrigin.Planned)
-                {
-                    Item(GlyphKind.Plus, "Combine…", () => Amend(app, item.Id, "combine"));
-                    Item(GlyphKind.Cross, "Drop", () => Amend(app, item.Id, "drop"), true);
-                }
+                if (item.Origin == PlanItemOrigin.Planned) Item(GlyphKind.Plus, "Combine…", () => Amend(app, item.Id, "combine"));
+                Item(GlyphKind.Lines, "Split…", () => Amend(app, item.Id, "split"));
+                if (item.Origin == PlanItemOrigin.Planned) Item(GlyphKind.Cross, "Drop", () => Amend(app, item.Id, "drop"), true);
             }
             if (box.childCount == 0) box.Add(U.Sub(item.IsDropped ? "Dropped. Undo it from Changes, in Edit." : "Combined into another video.").Pad(14));
             app.ShowPopup(anchor, box, 220, 320, -170, dismissOnOutsideTap: true);
@@ -231,7 +229,7 @@ namespace MediaTrip.UI.Docs
             var a = AmendDraft.For(app.Session, itemId);
             a.SetMode(app.Session, mode);
             app.State.SL.Amend = a;
-            app.RenderKeepFocus(mode == "drop" ? "am.reason" : "am.title");
+            app.RenderKeepFocus(mode == "drop" ? "am.reason" : mode == "split" ? "am.part0" : "am.title");
         }
 
         private static void FillVideoRead(AppController app, PlanItem item, VisualElement body, bool original)
@@ -294,8 +292,11 @@ namespace MediaTrip.UI.Docs
                 smes.Add(U.ChipX(U.Esc(d.FindPerson(pid)?.FullName ?? pid), () => edits.SetSmeIds(id, smeIds.Where(x => x != pidc).ToList())));
             }
             if (!string.IsNullOrEmpty(smeText)) smes.Add(U.ChipX(U.Esc(smeText), () => edits.SetSmeText(id, "")));
-            smes.Add(PickerField.Build(app, "video:" + id + ":sme", "", "+ SME", null, q => SmeRows(app, q, smeIds, p => edits.SetSmeIds(id, smeIds.Concat(new[] { p.Id }).ToList())), "h44").W(200));
-            body.Add(smes);
+            if (smes.childCount > 0) body.Add(smes);
+            // name, title, Add: the same picker as Filming, and it creates people the same way
+            body.Add(SmePicker.Build(app, "video:" + id + ":sme", L.SmeDraftFor(id),
+                n => smeIds.Select(pid => d.FindPerson(pid)?.FullName).Contains(n),
+                sd => TripScreen.Guard(app, () => edits.SetSmeIds(id, smeIds.Concat(new[] { AddSme(s, sd).Id }).ToList()))).Mb(10));
 
             var sc = U.Input(scene, null, val => app.Edit(() => edits.SetScene(id, val)), true, "h72");
             sc.name = "video:" + id + ":scene";
@@ -304,18 +305,20 @@ namespace MediaTrip.UI.Docs
             body.Add(U.Lbl("Notes"));
             body.Add(NodeEditor.Build(app, edits.Notes(id), new AppState.PasteState { Kind = "video", Id = id, Working = working }));
 
-            var photos = s.Queries.PhotosOfBook(item.BookId).Where(p => p.Status != PhotoStatus.Dropped && (working || !p.IsNew)).ToList();
-            if (photos.Count > 0)
+            // ---- photos with this video: the list, then one box to add to it
+            body.Add(U.Lbl("Photos with this video").Mt(14));
+            var listed = refs.Select(s.Plan.FindPhoto).Where(p => p != null).ToList();
+            if (listed.Count == 0) body.Add(U.Sub("None yet.").Mb(6));
+            foreach (var p in listed)
             {
-                body.Add(U.Lbl("Photos with this video").Mt(14));
-                var chips = U.Row().Cls("wrap");
-                foreach (var p in photos)
-                {
-                    var pid = p.Id; var on = refs.Contains(pid);
-                    chips.Add(U.Chip(U.ShortDescription(p.Description), on, () => edits.SetPhotoRefs(id, on ? refs.Where(x => x != pid).ToList() : refs.Concat(new[] { pid }).ToList()), "wrapok"));
-                }
-                body.Add(chips);
+                var pid = p.Id;
+                body.Add(U.Row(U.StPhoto(p.Status, 28, p.HeroType != HeroType.None).Mr(10),
+                    U.Col(U.Name(U.Esc(p.Description), true, "body-sm"), U.Sub(U.Esc(Fmt.PhotoWhere(d, p)))).Cls("grow"),
+                    // removes only the association; the photo stays on its book's list
+                    U.IconBtn(GlyphKind.Cross, () => TripScreen.Guard(app, () => edits.SetPhotoRefs(id, refs.Where(x => x != pid).ToList())), "ghost sm", 16)).MinH(44).Cls("bordered-bottom"));
             }
+            body.Add(PickerField.Build(app, "video:" + id + ":photo", "", "Add a photo: find one, or type a new one…", null,
+                q => PhotoRows(app, edits, item, refs, q), "h44 grow").Mt(6));
 
             var chapters = d.ChaptersOf(item.BookId).ToList();
             if (chapters.Count > 1)
@@ -344,28 +347,83 @@ namespace MediaTrip.UI.Docs
             body.Add(foot);
         }
 
-        /// <summary>SME search for the plan editor: people of the trip, best match first. People are added in Trip.</summary>
-        private static List<PickerField.Row> SmeRows(AppController app, string q, List<string> have, System.Action<Person> pick)
+        /// <summary>The SME the picker produced: a registry person, found or created; a typed title goes on file for someone who had none.</summary>
+        public static Person AddSme(MediaTrip.Session.TripSession s, SmeDraft sd)
         {
+            var person = sd.PersonId != null ? s.Data.FindPerson(sd.PersonId) : null;
+            if (person == null) person = s.Search.FindPersonByName(sd.Name) ?? s.FindOrAddPerson(sd.Name, Org.Client, PersonRole.Sme, sd.Title);
+            if (string.IsNullOrWhiteSpace(person.Title) && !string.IsNullOrWhiteSpace(sd.Title)) s.EditTrip(_ => person.Title = sd.Title.Trim());
+            return person;
+        }
+
+        /// <summary>
+        /// The add box under a video's photos: every photo of every book (this book's first),
+        /// photos typed in the field that are not on the list yet (picking one files them), and
+        /// a new photo when nothing matches. New and filed photos go through the one create
+        /// path into this book's master list, on the list this mode edits.
+        /// </summary>
+        private static List<PickerField.Row> PhotoRows(AppController app, PlanEdits edits, PlanItem item, List<string> refs, string q)
+        {
+            var s = app.Session; var d = s.Data; var id = item.Id;
+            var field = "video:" + id + ":photo";
+            void Link(string photoId) { TripScreen.Guard(app, () => edits.SetPhotoRefs(id, refs.Concat(new[] { photoId }).ToList())); app.RenderKeepFocus(field); }
             var rows = new List<PickerField.Row>();
-            foreach (var m in app.Session.Search.SearchPeople(q, 5))
+            var found = s.Search.SearchPhotos(GlobalSearch.HeroAlias(q), 12)
+                .Where(m => !refs.Contains(m.Item.Id) && m.Item.Status != PhotoStatus.Dropped && (edits.Working || !m.Item.IsNew))
+                .Select((m, i) => (m, i))
+                .OrderByDescending(t => System.Math.Round(t.m.Score, 2)).ThenBy(t => t.m.Item.Photo.BelongsToBook(item.BookId) ? 0 : 1).ThenBy(t => t.i)
+                .Select(t => t.m.Item).Take(6).ToList();
+            foreach (var p in found)
             {
-                var p = m.Item;
-                if (have.Contains(p.Id)) continue;
-                rows.Add(new PickerField.Row { Title = p.FullName, Sub = p.Title, Pick = () => pick(p) });
+                var photo = p;
+                rows.Add(new PickerField.Row
+                {
+                    Lead = U.StPhoto(p.Status, 28, p.HeroType != HeroType.None).Mr(10), Title = U.ShortDescription(p.Description),
+                    Sub = Fmt.PhotoWhere(d, p) + (p.Status == PhotoStatus.Captured ? " · shot" : " · not shot yet"),
+                    Pick = () => Link(photo.Id),
+                });
             }
+            var loose = s.Search.SearchLoosePhotos(q, 4).Select(m => m.Item).ToList();
+            foreach (var lp in loose)
+            {
+                var photo = lp;
+                rows.Add(new PickerField.Row
+                {
+                    Lead = new Glyph(GlyphKind.Frame, 18).Cls("muted").Mr(10), Title = U.ShortDescription(lp.Text),
+                    Sub = "Not on the shot list yet · " + Fmt.LooseWhere(app, lp) + " · files it under " + Fmt.BookChapter(d, item.BookId, item.ChapterId),
+                    Pick = () => { string pid = null; TripScreen.Guard(app, () => pid = edits.FilePhoto(photo.Text, item.BookId, item.ChapterId)); if (pid != null) Link(pid); },
+                });
+            }
+            var text = q.Trim();
+            if (text.Length > 0 && !CoverActions.IsExactMatch(text, found) && !loose.Any(lp => lp.Key == MediaTrip.Query.LoosePhotos.KeyOf(text)))
+                rows.Add(new PickerField.Row
+                {
+                    Lead = new Glyph(GlyphKind.Plus, 18).Mr(10), IsCreate = true, Title = "New photo “" + text + "”",
+                    Sub = "Goes on the " + (edits.Working ? "working" : "original") + " shot list for " + Fmt.BookChapter(d, item.BookId, item.ChapterId) + (edits.Working ? ", marked new" : ""),
+                    Pick = () => { string pid = null; TripScreen.Guard(app, () => pid = edits.AddPhoto(item.BookId, item.ChapterId, text)); if (pid != null) Link(pid); },
+                });
             return rows;
         }
 
+        /// <summary>
+        /// Deleting a video that was filmed: the capture is kept and detached by default (it
+        /// stays in the summary, unplanned, tagged with what it was); deleting it too is the
+        /// other answer, for something logged by mistake.
+        /// </summary>
         private static void DeleteVideo(AppController app, PlanEdits edits, PlanItem item)
         {
             var s = app.Session; var id = item.Id;
             if (edits.Working) { Amend(app, id, "drop"); return; }
             var impact = Deletions.ForVideo(s.Data, id);
-            void Go() { TripScreen.Guard(app, () => { edits.DeleteVideo(id); app.State.SL.Expanded.Remove(id); }); }
-            if (!impact.NeedsConfirm) { Go(); return; }
-            ChoiceSheet.Open(app, "Delete “" + item.Title + "” from the original?", impact.Lines().Concat(new[] { "If the plan changed, drop it from the working copy instead: that keeps it on the original, struck through." }),
-                new ChoiceSheet.Option("Delete from the original", Go, danger: true));
+            void Go(bool deleteCaptures) { TripScreen.Guard(app, () => { edits.DeleteVideo(id, null, deleteCaptures); app.State.SL.Expanded.Remove(id); }); }
+            if (!impact.NeedsConfirm) { Go(false); return; }
+            var lines = impact.Lines().Concat(new[] { "If the plan changed, drop it from the working copy instead: that keeps it on the original, struck through." });
+            if (impact.Captures > 0)
+                ChoiceSheet.Open(app, "Delete “" + item.Title + "” from the original? It was filmed.", lines,
+                    new ChoiceSheet.Option("Detach and keep the capture", () => Go(false)),
+                    new ChoiceSheet.Option("Delete the capture too", () => Go(true), danger: true));
+            else
+                ChoiceSheet.Open(app, "Delete “" + item.Title + "” from the original?", lines, new ChoiceSheet.Option("Delete from the original", () => Go(false), danger: true));
         }
 
         // ------------------------------------------------------------------ chapters (edit)
@@ -459,11 +517,20 @@ namespace MediaTrip.UI.Docs
         private static void DeletePhoto(AppController app, PlanEdits edits, PhotoItem p)
         {
             var s = app.Session; var id = p.Id;
-            void Go() { TripScreen.Guard(app, () => { edits.DeletePhoto(id, edits.Working ? "Dropped while editing the working list." : null); app.State.SL.Expanded.Remove(id); }); }
-            if (edits.Working) { ConfirmSheet.Open(app, "Drop this photo?", "It stays on the original list, struck through, and the drop shows in Changes.", "Drop", Go); return; }
+            void Go(bool deleteCaptures) { TripScreen.Guard(app, () => { edits.DeletePhoto(id, edits.Working ? "Dropped while editing the working list." : null, deleteCaptures); app.State.SL.Expanded.Remove(id); }); }
             var impact = Deletions.ForPhoto(s.Data, id);
-            if (!impact.NeedsConfirm) { Go(); return; }
-            ChoiceSheet.Open(app, "Delete this photo from the original?", impact.Lines(), new ChoiceSheet.Option("Delete from the original", Go, danger: true));
+            var verb = edits.Working ? "Drop" : "Delete";
+            if (impact.Captures > 0)
+            {
+                var lines = impact.Lines().Concat(new[] { edits.Working ? "The drop shows in Changes." : "" }).Where(l => l.Length > 0);
+                ChoiceSheet.Open(app, verb + " “" + U.ShortDescription(p.Description) + "”? It was shot.", lines,
+                    new ChoiceSheet.Option("Detach and keep the record", () => Go(false)),
+                    new ChoiceSheet.Option("Delete the record too", () => Go(true), danger: true));
+                return;
+            }
+            if (edits.Working) { ConfirmSheet.Open(app, "Drop this photo?", "It stays on the original list, struck through, and the drop shows in Changes.", "Drop", () => Go(false)); return; }
+            if (!impact.NeedsConfirm) { Go(false); return; }
+            ChoiceSheet.Open(app, "Delete this photo from the original?", impact.Lines(), new ChoiceSheet.Option("Delete from the original", () => Go(false), danger: true));
         }
 
         // ------------------------------------------------------------------ changes
@@ -482,6 +549,14 @@ namespace MediaTrip.UI.Docs
                 var row = U.Tap(() => { if (change.OpenItemId != null) app.OpenVideo(change.OpenItemId); }, "change grow", U.Pill(c.Label, c.Style + " label"), text);
                 if (!E) return row;
                 row.style.width = StyleKeyword.Auto;
+                var am = change.Amendment;
+                var filmed = am != null && am.Type == AmendmentType.Add && am.NewMedia != MediaKind.Photo
+                    ? s.Data.Captures.Captures.Where(x => x.PlanVideoId != null && (am.Results?.Contains(x.PlanVideoId) ?? false)).ToList() : new List<Capture>();
+                if (filmed.Count > 0)
+                    return U.Row(row, U.Btn("Undo", () => ChoiceSheet.Open(app, "Undo the add? It was filmed.",
+                        new[] { "“" + filmed[0].Title + "” is in the summary. Detached, it stays there as an unplanned capture tagged with what it was." },
+                        new ChoiceSheet.Option("Detach and keep the capture", () => { s.UndoAmendment(am.Id); app.Toast("Undone · capture kept"); }),
+                        new ChoiceSheet.Option("Delete the capture too", () => { s.UndoAmendment(am.Id, deleteCaptures: true); app.Toast("Undone"); }, danger: true)), "sm danger ml8"));
                 var undo = U.Btn(change.Amendment != null ? "Undo" : "Remove", () => ConfirmSheet.Open(app,
                     change.Amendment != null ? "Undo “" + change.Label.ToLowerInvariant() + "”?" : "Remove this record?",
                     change.Amendment != null ? "The change is withdrawn and the working copy goes back to how it was before it." : "Only the record is removed. What it describes stays as it is now.",
@@ -511,19 +586,29 @@ namespace MediaTrip.UI.Docs
             void Close() { L.Amend = null; app.State.Focus = null; app.Render(); }
             if (item == null) { L.Amend = null; return null; }
 
-            var apply = U.Btn(a.Mode == "drop" ? "Drop" : "Save", () =>
+            void Apply()
             {
                 try
                 {
                     var id = a.Apply(s);
                     L.Amend = null;
                     L.Expanded.Remove(a.ItemId);
-                    if (a.Mode == "combine") { L.Expanded.Add(id); L.ScrollTo = id; }
+                    if (a.Mode == "combine" || a.Mode == "split") { L.Expanded.Add(id); L.ScrollTo = id; }
                     app.State.Focus = null;
                     app.Render();
                     app.Toast("Recorded in Changes");
                 }
                 catch (System.Exception ex) { app.Toast(ex.Message); }
+            }
+            var apply = U.Btn(a.Mode == "drop" ? "Drop" : a.Mode == "split" ? "Split" : "Save", () =>
+            {
+                // Dropping something filmed: the capture is kept and detached unless said otherwise.
+                var filmed = a.Mode == "drop" ? a.CapturesOf(s) : new List<Capture>();
+                if (filmed.Count == 0) { Apply(); return; }
+                ChoiceSheet.Open(app, "Drop #" + ShotListView.NumberOf(item) + "? It was filmed.",
+                    new[] { "“" + filmed[0].Title + "” is in the summary. Detached, it stays there as an unplanned capture tagged “was video " + ShotListView.NumberOf(item) + "”." },
+                    new ChoiceSheet.Option("Detach and keep the capture", () => { a.DeleteCaptures = false; Apply(); }),
+                    new ChoiceSheet.Option("Delete the capture too", () => { a.DeleteCaptures = true; Apply(); }, danger: true));
             }, "big " + (a.Mode == "drop" ? "danger" : "pri"));
             apply.SetEnabled(a.CanApply);
 
@@ -544,6 +629,19 @@ namespace MediaTrip.UI.Docs
                 }
             }
             if (a.Mode == "drop") body.Add(U.Body("#" + ShotListView.NumberOf(item) + " " + U.Esc(item.Title)).Mb(14));
+            else if (a.Mode == "split")
+            {
+                body.Add(U.Body("#" + ShotListView.NumberOf(item) + " " + U.Esc(item.Title)).Mb(10));
+                body.Add(U.Field("Parts", U.Stepper(a.Parts.Count, delta => { a.SetPartCount(s, a.Parts.Count + delta); app.RenderKeepFocus(null); })));
+                for (int i = 0; i < a.Parts.Count; i++)
+                {
+                    var idx = i;
+                    var part = U.Input(a.Parts[i], null, v => { a.Parts[idx] = v; apply.SetEnabled(a.CanApply); });
+                    part.name = "am.part" + i;
+                    body.Add(U.Field("#" + ShotListView.NumberOf(item) + (char)('a' + i), part));
+                }
+                body.Add(U.Sub("Each part starts with #" + ShotListView.NumberOf(item) + "'s scene, SME, notes and photos. Edit them apart afterwards in Working edit. #" + ShotListView.NumberOf(item) + " is superseded and resolves to the parts.").Mb(14));
+            }
             else
             {
                 var title = U.Input(a.Title, null, v => { a.Title = v; apply.SetEnabled(a.CanApply); });

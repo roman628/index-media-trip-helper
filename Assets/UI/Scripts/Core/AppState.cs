@@ -100,6 +100,13 @@ namespace MediaTrip.UI
             public AmendDraft Amend;
             /// <summary>True once "Fix the original" was chosen for this visit, so the question is asked once.</summary>
             public bool OriginalGatePassed;
+            /// <summary>The SME being typed for a video in Edit, by video id.</summary>
+            public Dictionary<string, SmeDraft> SmeDrafts = new Dictionary<string, SmeDraft>();
+            public SmeDraft SmeDraftFor(string videoId)
+            {
+                if (!SmeDrafts.TryGetValue(videoId, out var d)) SmeDrafts[videoId] = d = new SmeDraft();
+                return d;
+            }
         }
 
         public sealed class OutlineState

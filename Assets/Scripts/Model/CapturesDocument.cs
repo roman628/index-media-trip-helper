@@ -109,6 +109,13 @@ namespace MediaTrip.Model
         public string PlanVideoId { get; set; }
         /// <summary>Original shot-list number, kept so drift is visible.</summary>
         public int? PlannedNumber { get; set; }
+        /// <summary>
+        /// Set when the plan item this was shot against was removed (deleted, dropped, or an
+        /// add undone) and the capture was kept: "video 4: Try Step Verification". The capture
+        /// is unplanned from then on, and this says what it used to be.
+        /// </summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public string WasPlannedAs { get; set; }
         public string Title { get; set; }
         public string BookId { get; set; }
         public string ChapterId { get; set; }
@@ -172,6 +179,9 @@ namespace MediaTrip.Model
         public string At { get; set; }
         public string PhotoId { get; set; }
         public string Text { get; set; }
+        /// <summary>Set when the planned photo this recorded was removed and the record kept: "photo: Detail: retrieval line".</summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public string WasPlannedAs { get; set; }
         public string AfterCaptureId { get; set; }
         public PhotoCaptureSection Section { get; set; } = PhotoCaptureSection.AdditionalPhotography;
         [JsonExtensionData] public IDictionary<string, JToken> Extra { get; set; }

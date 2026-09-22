@@ -157,7 +157,26 @@ namespace MediaTrip.UI.Docs
                     Pick = () => PickExisting(app, slot, photo),
                 });
             }
-            if (!CoverActions.IsExactMatch(q, found))
+            // photos typed in the field, not on the shot list yet: picking one files it in this book and assigns it
+            var loose = s.Search.SearchLoosePhotos(q, 4).Select(m => m.Item).ToList();
+            foreach (var lp in loose)
+            {
+                var photo = lp;
+                rows.Add(new PickerField.Row
+                {
+                    Lead = new Glyph(GlyphKind.Frame, 18).Cls("muted").Mr(10),
+                    Title = U.ShortDescription(lp.Text),
+                    Sub = "Not on the shot list yet · " + Fmt.LooseWhere(app, lp) + " · files it under " + Fmt.BookName(slot.Book),
+                    Pick = () =>
+                    {
+                        CoverActions.FileAndAssign(s, slot, photo);
+                        C.Query = "";
+                        app.Render();
+                        app.Toast("Filed on the shot list and assigned");
+                    },
+                });
+            }
+            if (!CoverActions.IsExactMatch(q, found) && !loose.Any(lp => lp.Key == MediaTrip.Query.LoosePhotos.KeyOf(q)))
             {
                 var text = q.Trim();
                 rows.Add(new PickerField.Row

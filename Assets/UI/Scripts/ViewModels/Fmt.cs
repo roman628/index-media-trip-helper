@@ -75,6 +75,16 @@ namespace MediaTrip.UI.ViewModels
             return BookName(b) + (use != null ? " · " + use : "") + (p.IsNew ? " · new" : "");
         }
 
+        /// <summary>Where a free-text photo was logged: "shot with #4 · Day 2", "Day 1".</summary>
+        public static string LooseWhere(AppController app, Query.LoosePhoto lp)
+        {
+            var parts = new List<string>();
+            var cap = lp.Captures.FirstOrDefault();
+            if (cap != null) parts.Add("shot with “" + cap.Title + "”");
+            if (lp.DayIds.Count > 0) parts.Add(string.Join(", ", lp.DayIds.Select(app.DayLabel)));
+            return parts.Count == 0 ? "in the summary" : string.Join(" · ", parts);
+        }
+
         public static string OriginNote(PlanItem it, Capture c)
         {
             if (c?.PlannedNumber != null) return "planned #" + c.PlannedNumber;

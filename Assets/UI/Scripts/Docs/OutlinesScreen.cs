@@ -43,10 +43,31 @@ namespace MediaTrip.UI.Docs
                 books.Add(U.Chip(Fmt.BookName(b), bookId == bid, () => { O.Book = bid; O.PlaceAt = null; st.Focus = null; app.Render(); }, "wrapok"));
             }
 
+            // Expand all / Collapse all, as on the shot list: the outline reads like the document.
+            var phone = app.Layout.Phone;
+            var controls = new VisualElement().Cls("controls");
+            controls.Add(U.Btn(phone ? "Expand" : "Expand all", () => ExpandAll(app, true), "sm ghost accent"));
+            controls.Add(U.Btn(phone ? "Collapse" : "Collapse all", () => ExpandAll(app, false), "sm ghost accent"));
+
             var list = U.Scroll().Named("ol:" + bookId).Cls("listpad");
             if (bookId == null) list.Add(U.Sub("Add a book in Trip first.").Pad(20, 12));
             else Fill(app, list, bookId);
-            return AppShell.Build(app, "Outlines", U.Col(books, list).Cls("grow minh0"), edit: true);
+            return AppShell.Build(app, "Outlines", U.Col(books, bookId == null ? null : controls, list).Cls("grow minh0"), edit: true);
+        }
+
+        /// <summary>Open (or close) every chapter and section of the book being looked at.</summary>
+        public static void ExpandAll(AppController app, bool open)
+        {
+            var O = app.State.OL; var d = app.Session.Data;
+            O.OpenChapters.Clear(); O.OpenSections.Clear(); O.PlaceAt = null;
+            if (open && O.Book != null)
+            {
+                foreach (var ch in d.ChaptersOf(O.Book)) O.OpenChapters.Add(ch.Id);
+                foreach (var oc in d.FindOutline(O.Book)?.Chapters ?? new List<OutlineChapter>())
+                    foreach (var sec in oc.Sections) O.OpenSections.Add(sec.Id);
+            }
+            app.State.Focus = null;
+            app.Render();
         }
 
         public static VisualElement Overlay(AppController app) => null;
@@ -267,7 +288,19 @@ namespace MediaTrip.UI.Docs
                     Pick = () => Place(MediaRefKind.PlannedPhoto, p.Id),
                 });
             }
+            // photos typed in the field, not on the shot list yet: picking one files it here
+            foreach (var m in s.Search.SearchLoosePhotos(q, 4))
+            {
+                var lp = m.Item;
+                rows.Add(new PickerField.Row
+                {
+                    Lead = new Glyph(GlyphKind.Frame, 18).Cls("muted").Mr(10), Title = lp.Text,
+                    Sub = "Not on the shot list yet · " + Fmt.LooseWhere(app, lp) + " · files it under " + Fmt.BookChapter(d, bookId, chapterId),
+                    Pick = () => Place(MediaRefKind.PlannedPhoto, s.FilePhoto(lp.Text, bookId, chapterId, "Filed from Outlines.")),
+                });
+            }
             var text = q.Trim();
+            if (rows.Any(r => !r.IsCreate && string.Equals(r.Title, text, System.StringComparison.OrdinalIgnoreCase))) return rows;
             rows.Add(new PickerField.Row { Lead = new Glyph(GlyphKind.Plus, 18).Mr(10), IsCreate = true, Title = "New photo “" + text + "”", Sub = "Added to the working shot list, " + Fmt.BookChapter(d, bookId, chapterId),
                 Pick = () => Place(MediaRefKind.PlannedPhoto, s.CreateMedia(MediaKind.Photo, text, bookId, chapterId, "Added from Outlines.")) });
             rows.Add(new PickerField.Row { Lead = new Glyph(GlyphKind.Plus, 18).Mr(10), IsCreate = true, Title = "New video “" + text + "”", Sub = "Added to the working shot list, " + Fmt.BookChapter(d, bookId, chapterId),

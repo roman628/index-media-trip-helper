@@ -125,14 +125,32 @@ namespace MediaTrip.Authoring
         /// Delete a video. Working: exactly what Drop does. Original: removed from the list;
         /// captures of it are kept and become unplanned, recorded changes stop naming it.
         /// </summary>
-        public void DeleteVideo(string itemId, string reason = null)
+        public void DeleteVideo(string itemId, string reason = null, bool deleteCaptures = false)
         {
-            if (Working) { _s.Drop(itemId, reason); return; }
+            if (Working) { DropVideo(itemId, reason, deleteCaptures); return; }
             var v = OriginalVideo(itemId);
             var numbers = SnapshotNumbers();
             Correct("video", itemId, v.Title, FieldChange.Deleted, v.Title, null);
+            if (deleteCaptures) RemoveCapturesOf(itemId);
             Ed.RemoveVideo(itemId, detach: true);
             LogRenumbering(numbers);
+        }
+
+        /// <summary>
+        /// Drop from the working copy. A capture of the dropped video is kept by default: it
+        /// stops pointing at the plan and is tagged with what it was. <paramref name="deleteCaptures"/>
+        /// removes it too, for footage logged by mistake.
+        /// </summary>
+        public Amendment DropVideo(string itemId, string reason = null, bool deleteCaptures = false)
+        {
+            if (deleteCaptures) RemoveCapturesOf(itemId);
+            else foreach (var c in D.Captures.Captures.Where(c => c.PlanVideoId == itemId).ToList()) _s.DetachCapture(c.Id);
+            return _s.Drop(itemId, reason);
+        }
+
+        private void RemoveCapturesOf(string itemId)
+        {
+            foreach (var c in D.Captures.Captures.Where(c => c.PlanVideoId == itemId).ToList()) _s.RemoveCapture(c.Id);
         }
 
         /// <summary>Reorder within the chapter (original only; the working copy keeps the printed order).</summary>
@@ -162,10 +180,25 @@ namespace MediaTrip.Authoring
 
         // ------------------------------------------------------------------ photos
 
-        public string AddPhoto(string bookId, string chapterId, string description)
+        /// <summary>A new photo in the book's master list: on the original when authoring it, otherwise on the working copy, marked new.</summary>
+        public string AddPhoto(string bookId, string chapterId, string description, string reason = null)
         {
-            if (Working) return _s.CreateMedia(MediaKind.Photo, string.IsNullOrWhiteSpace(description) ? "New photo" : description, bookId, chapterId, "Added while editing the working list.");
-            return Ed.AddPhoto(bookId, description, HeroType.None, chapterId).Id;
+            if (Working) return _s.CreateMedia(MediaKind.Photo, string.IsNullOrWhiteSpace(description) ? "New photo" : description, bookId, chapterId, reason ?? "Added while editing the working list.");
+            var p = Ed.AddPhoto(bookId, description, HeroType.None, chapterId);
+            Correct("photo", p.Id, description, FieldChange.Added, null, "photo");
+            return p.Id;
+        }
+
+        /// <summary>
+        /// File a photo that was typed as free text in the field: it becomes a real photo of the
+        /// list this mode edits, in the given book and chapter, and every capture that recorded
+        /// it under that text points at it from then on.
+        /// </summary>
+        public string FilePhoto(string text, string bookId, string chapterId)
+        {
+            var id = AddPhoto(bookId, chapterId, text.Trim(), "Filed from a photo typed in the field.");
+            _s.RepointLoosePhoto(text, id);
+            return id;
         }
 
         public void SetPhotoDescription(string photoId, string text)
@@ -187,12 +220,25 @@ namespace MediaTrip.Authoring
             Correct("photo", photoId, p.Description, FieldChange.HeroType, before, p.HeroType + (p.ChapterId != null ? ":" + p.ChapterId : ""));
         }
 
-        public void DeletePhoto(string photoId, string reason = null)
+        /// <summary>
+        /// Delete (Original) or drop (Working) a photo. What was logged of it is kept by default:
+        /// the records keep its description and say what it was. <paramref name="deleteCaptures"/>
+        /// removes those records too.
+        /// </summary>
+        public void DeletePhoto(string photoId, string reason = null, bool deleteCaptures = false)
         {
+            if (deleteCaptures) RemovePhotoRecords(photoId);
             if (Working) { _s.Drop(photoId, reason); return; }
             var p = D.FindPhoto(photoId);
             Correct("photo", photoId, p.Description, FieldChange.Deleted, p.Description, null);
             Ed.RemovePhoto(photoId, detach: true);
+        }
+
+        private void RemovePhotoRecords(string photoId)
+        {
+            foreach (var c in D.Captures.Captures) c.Photos?.RemoveAll(cp => cp.PhotoId == photoId);
+            foreach (var pc in D.Captures.PhotoCaptures.Where(x => x.PhotoId == photoId).ToList()) _s.RemovePhotoCapture(pc.Id);
+            _s.MarkDirty(Persistence.DocumentKind.Captures);
         }
 
         // ------------------------------------------------------------------ chapters (one thing, in either mode)

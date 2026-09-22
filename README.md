@@ -18,8 +18,10 @@ the screen's named exports, Import, Theme, Shortcuts) sit beside it.
   Arrive and depart are travel days; the shooting days between them fill themselves in.
 - **Shot list**: Working (the plan as it now stands), Original (the printed list) and Changes,
   plus "Hide done". Videos and photos expand and collapse in place (Expand all reads like the
-  printed document); each video has a menu with Film, Rename, Combine and Drop. Photos are
-  listed with their book. Edit means two different things:
+  printed document); each video has a menu with Film, Rename, Combine, Split and Drop.
+  Photos are listed with their book. A video's "Photos with this video" is a list with one
+  add box under it that finds any photo of any book, or creates a new one; removing from the
+  list removes only the link. Edit means two different things:
   - *Original + Edit* is authoring the plan. It records nothing, until media exists; then
     the app asks whether this is a fix to what was typed (logged as a correction) or a change
     of plan (which belongs in Working).
@@ -42,8 +44,10 @@ the screen's named exports, Import, Theme, Shortcuts) sit beside it.
   An entry's day and time can be changed.
 - **Filming**: the entry form with the matching line of the plan above each field, a Plan
   button that opens the whole plan beside the form, shot-list suggestions while typing the
-  title, and fuzzy search for SMEs with their job title. Saving writes a capture (and an
-  "add" for something unplanned).
+  title, and an SME picker (name, then title, then Add; the same one the shot list uses).
+  Saving writes a capture (and an "add" for something unplanned). Photos typed here stay
+  free text for speed; they show in every photo picker as not on the list yet, and picking
+  one anywhere files it as a real photo with the records still pointing at it.
 - **Transfer**: Share writes a zip (or a single-file JSON bundle where zipping is unavailable)
   and hands it to the platform: the iOS share sheet, a save dialog in the Editor, or the
   app's Export folder in a standalone build. Exports are named for what they are: original
@@ -57,7 +61,9 @@ a chapter typed into an outline is a chapter of the plan. New photos and videos,
 they are created (Covers, Outlines, the shot list), go through one operation: they land in
 the working shot list in the right book and chapter, marked new, and show in Changes.
 Nothing is silently orphaned: a delete that would break an assignment lists what it touches
-first, and then detaches or moves it. A capture is never deleted by a plan edit.
+first, and then detaches or moves it. Removing something that was filmed (a delete, a drop,
+an undone add) asks: detach and keep the capture (the default: it stays in the summary,
+unplanned, tagged "was video 4: …") or delete the capture too.
 
 Layouts are built in points for three kinds of screen (phone, portrait tablet, landscape
 tablet) chosen at run time from the panel size; every screen works in all of them. A

@@ -91,11 +91,11 @@ namespace MediaTrip.UI
                 return;
             }
 
-            if (meta && app.State.Screen == Screen.ShotList && (e.keyCode == KeyCode.RightBracket || e.keyCode == KeyCode.LeftBracket))
+            if (meta && (e.keyCode == KeyCode.RightBracket || e.keyCode == KeyCode.LeftBracket))
             {
-                MediaTrip.UI.Docs.ShotListScreen.ExpandAll(app, e.keyCode == KeyCode.RightBracket);
-                Consume(e);
-                return;
+                var open = e.keyCode == KeyCode.RightBracket;
+                if (app.State.Screen == Screen.ShotList) { MediaTrip.UI.Docs.ShotListScreen.ExpandAll(app, open); Consume(e); return; }
+                if (app.State.Screen == Screen.Outlines) { MediaTrip.UI.Docs.OutlinesScreen.ExpandAll(app, open); Consume(e); return; }
             }
 
             // ---- chapter and section names in the outline editor: the whole outline can be typed from the keyboard

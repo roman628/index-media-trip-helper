@@ -290,3 +290,107 @@ namespace MediaTrip.UI.Tests
         }
     }
 }
+
+namespace MediaTrip.UI.Tests
+{
+    public class SplitAndSmeDraftTests
+    {
+        [Test]
+        public void Split_MakesParts_ThatStartAsCopies_AndTakeTheCapture()
+        {
+            var s = UiFixtures.Session();
+            var a = AmendDraft.For(s, "v-004");
+            a.SetMode(s, "split");
+            CollectionAssert.AreEqual(new[] { "Applying the First Lock (part 1)", "Applying the First Lock (part 2)" }, a.Parts);
+            a.SetPartCount(s, 3);
+            Assert.AreEqual(3, a.Parts.Count);
+            a.SetPartCount(s, 1);
+            Assert.AreEqual(2, a.Parts.Count, "never fewer than two");
+            a.Parts[0] = "Applying the First Lock: approach";
+            a.Parts[1] = "";
+            Assert.IsFalse(a.CanApply, "every part needs a title");
+            a.Parts[1] = "Applying the First Lock: the lock";
+            Assert.IsTrue(a.CanApply);
+
+            var first = a.Apply(s);
+            var source = s.Plan.FindItem("v-004");
+            Assert.IsTrue(source.IsSuperseded);
+            Assert.AreEqual(2, source.ResultIds.Count);
+            Assert.AreEqual(first, source.ResultIds[0]);
+            var part = s.Plan.FindItem(first);
+            Assert.AreEqual("4a", part.DisplayNumber);
+            Assert.AreEqual("Applying the First Lock: approach", part.Title);
+            CollectionAssert.AreEqual(source.SmeIds, part.SmeIds, "each part starts with the original's details");
+            CollectionAssert.AreEqual(source.PhotoRefs, part.PhotoRefs);
+            Assert.AreEqual(source.SceneDescription, part.SceneDescription);
+            Assert.AreEqual(first, s.Data.FindCapture("cap-003").PlanVideoId, "the capture moves onto the first part");
+            Assert.AreEqual(PlanItemStatus.Captured, part.Status);
+            Assert.AreEqual(PlanItemStatus.NotCaptured, s.Plan.FindItem(source.ResultIds[1]).Status);
+            var change = ShotListView.Build(s, ShotListMode.Changes, false).Changes.Last();
+            Assert.AreEqual("Split", change.Label);
+            StringAssert.Contains("#4 →", change.Line);
+
+            // the parts are edited apart, in the working copy
+            new MediaTrip.Authoring.PlanEdits(s, MediaTrip.Authoring.PlanEditMode.Working).SetScene(source.ResultIds[1], "Close on the lock.");
+            Assert.AreEqual("Close on the lock.", s.Plan.FindItem(source.ResultIds[1]).SceneDescription);
+            Assert.AreEqual(source.SceneDescription, s.Plan.FindItem(first).SceneDescription);
+        }
+
+        [Test]
+        public void Drop_KeepsTheCaptureDetached_UnlessTheDraftSaysDeleteIt()
+        {
+            var s = UiFixtures.Session();
+            var a = AmendDraft.For(s, "v-004");
+            a.SetMode(s, "drop");
+            Assert.AreEqual("cap-003", a.CapturesOf(s).Single().Id);
+            a.Apply(s);
+            var cap = s.Data.FindCapture("cap-003");
+            Assert.IsNull(cap.PlanVideoId);
+            Assert.AreEqual("video 4: Applying the First Lock", cap.WasPlannedAs);
+
+            var s2 = UiFixtures.Session();
+            var b = AmendDraft.For(s2, "v-004");
+            b.SetMode(s2, "drop");
+            b.DeleteCaptures = true;
+            b.Apply(s2);
+            Assert.IsNull(s2.Data.FindCapture("cap-003"));
+        }
+
+        [Test]
+        public void SmeDraft_FillsNameAndTitleOnFile_KeepsATypedTitle()
+        {
+            var s = UiFixtures.Session();
+            var d = new SmeDraft();
+            Assert.IsFalse(d.CanAdd);
+            var nina = s.Search.SuggestNames("nina", MediaTrip.Search.NameScope.Sme, 3)[0].Item;
+            d.Fill(nina);
+            Assert.AreEqual("Nina Okoro", d.Name);
+            Assert.AreEqual("Safety Lead", d.Title, "the title on file fills in");
+            Assert.AreEqual("p-007", d.PersonId);
+            Assert.IsTrue(d.CanAdd);
+
+            d.Clear();
+            d.Title = "Shift Lead";
+            d.Fill(nina);
+            Assert.AreEqual("Shift Lead", d.Title, "a title already typed is not overwritten");
+
+            d.Clear();
+            d.FillNew("  Casey Ward ");
+            Assert.AreEqual("Casey Ward", d.Name);
+            Assert.IsNull(d.PersonId);
+
+            // filming: name, title, Add, then Save puts the title on file for someone who had none
+            var cd = new CaptureDraft();
+            cd.SetTitle("Something unplanned");
+            cd.Sme.FillNew("Casey Ward"); cd.Sme.Title = "Shift Lead";
+            cd.AddPerson(cd.Sme.Name, cd.Sme.Title, cd.Sme.PersonId);
+            Assert.AreEqual("", cd.Sme.Name, "the draft clears for the next one");
+            Assert.AreEqual("Shift Lead", cd.People.Single().Title);
+            var cap = cd.Save(s, "d-002");
+            var person = s.Data.FindPerson(cap.People[0].PersonId);
+            Assert.AreEqual("Casey", person.FirstName);
+            Assert.AreEqual("Shift Lead", person.Title);
+            Assert.AreEqual("Shift Lead", cap.People[0].Title, "name and title both on the capture");
+        }
+    }
+}
