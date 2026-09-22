@@ -8,10 +8,11 @@ using MediaTrip.Session;
 namespace MediaTrip.Authoring
 {
     /// <summary>
-    /// Editing of outline mockups (one document per book): chapters, sections, per-chapter
-    /// notes and the recursive bullets. Chapters are numbered 1..N and sections "c.n" after
-    /// every change. Removing a chapter or section that outline assignments point at is
-    /// refused unless <c>cascadeAssignments</c> is passed, which deletes those assignments.
+    /// Editing of outline mockups (one document per book): sections and their recursive
+    /// bullets, attached to the book's chapters. A chapter is the shot list's chapter, so the
+    /// chapter calls here edit the plan. Sections are numbered "c.n" after every change.
+    /// Removing a section that media is placed in is refused unless <c>cascadeAssignments</c>
+    /// is passed, which unassigns that media (it stays in the summary, unplaced).
     /// </summary>
     public sealed class OutlineEditor
     {
@@ -45,54 +46,45 @@ namespace MediaTrip.Authoring
         }
 
         // ------------------------------------------------------------------
-        // Chapters
+        // Chapters: one thing, owned by the shot list. These calls edit that chapter.
         // ------------------------------------------------------------------
 
-        /// <summary>Add a chapter. Pass <paramref name="id"/> to link it to a shot-list chapter (same ID), which is how the sample does it.</summary>
-        public OutlineChapter AddChapter(string bookId, string name, int? index = null, string id = null)
+        /// <summary>
+        /// Add a chapter to the book. It is created in the shot list (typing a chapter into an
+        /// outline is creating that chapter) and the outline attaches to it by id.
+        /// </summary>
+        public OutlineChapter AddChapter(string bookId, string name, int? index = null)
         {
-            var o = Ensure(bookId);
-            id = id ?? Ids.New("c");
-            if (o.Chapters.Any(c => c.Id == id)) throw new InvalidOperationException("Outline already has chapter " + id);
-            var ch = new OutlineChapter { Id = id, Name = name, Notes = "" };
-            o.Chapters.Insert(Clamp(index ?? o.Chapters.Count, o.Chapters.Count), ch);
-            Finish(bookId);
-            return ch;
+            Ensure(bookId);
+            var ch = _s.PlanEditor.AddChapter(bookId, name, index);
+            return FindChapter(bookId, ch.Id);
         }
 
-        public void UpdateChapter(string bookId, string chapterId, Action<OutlineChapter> edit)
+        public void SetChapterName(string bookId, string chapterId, string name)
         {
-            var ch = RequireChapter(bookId, chapterId);
-            var keepId = ch.Id; var keepNumber = ch.Number; var sections = ch.Sections;
-            edit(ch);
-            ch.Id = keepId; ch.Number = keepNumber; ch.Sections = sections ?? new List<OutlineSection>();
-            Finish(bookId);
+            RequireChapter(bookId, chapterId);
+            _s.PlanEditor.UpdateChapter(chapterId, c => c.Name = name);
         }
 
-        public void SetChapterName(string bookId, string chapterId, string name) => UpdateChapter(bookId, chapterId, c => c.Name = name);
-        public void SetChapterNotes(string bookId, string chapterId, string notes) => UpdateChapter(bookId, chapterId, c => c.Notes = notes ?? "");
-
-        public void RemoveChapter(string bookId, string chapterId, bool cascadeAssignments = false)
+        /// <summary>
+        /// Remove the chapter from the book (plan and outline alike). Refused when anything
+        /// depends on it unless <paramref name="cascade"/>; then its planned videos and photos
+        /// move to <paramref name="moveContentsTo"/> or, with no target, are detached.
+        /// See <see cref="ShotListEditor.RemoveChapter(string, string)"/>.
+        /// </summary>
+        public void RemoveChapter(string bookId, string chapterId, bool cascade = false, string moveContentsTo = null)
         {
-            var o = Ensure(bookId);
-            var ch = RequireChapter(bookId, chapterId);
-            var refs = ReferenceFinder.FindOutlineRefs(D, bookId, chapterId);
-            foreach (var s in ch.Sections) refs.AddRange(ReferenceFinder.FindOutlineRefs(D, bookId, null, s.Id));
-            refs = refs.GroupBy(r => r.Id).Select(g => g.First()).ToList();
-            if (refs.Count > 0 && !cascadeAssignments)
-                throw new PlanEditBlockedException(chapterId, refs, "Pass cascadeAssignments: true to delete those assignments too.", "Removing outline chapter");
-            RemoveAssignments(refs);
-            o.Chapters.Remove(ch);
-            Finish(bookId);
+            RequireChapter(bookId, chapterId);
+            var impact = Deletions.ForChapter(D, chapterId);
+            if (impact.NeedsConfirm && !cascade)
+                throw new PlanEditBlockedException(chapterId, ReferenceFinder.Find(D, chapterId), "Confirm first: " + string.Join(" ", impact.Lines()), "Removing chapter");
+            _s.PlanEditor.RemoveChapter(chapterId, moveContentsTo);
         }
 
         public void ReorderChapter(string bookId, string chapterId, int newIndex)
         {
-            var o = Ensure(bookId);
-            var ch = RequireChapter(bookId, chapterId);
-            o.Chapters.Remove(ch);
-            o.Chapters.Insert(Clamp(newIndex, o.Chapters.Count), ch);
-            Finish(bookId);
+            RequireChapter(bookId, chapterId);
+            _s.PlanEditor.ReorderChapter(chapterId, newIndex);
         }
 
         // ------------------------------------------------------------------
@@ -173,24 +165,11 @@ namespace MediaTrip.Authoring
         // Numbering
         // ------------------------------------------------------------------
 
-        /// <summary>Chapters 1..N, sections "c.n".</summary>
-        public void Renumber(string bookId)
-        {
-            var o = D.FindOutline(bookId);
-            if (o == null) return;
-            for (int c = 0; c < o.Chapters.Count; c++)
-            {
-                var ch = o.Chapters[c];
-                ch.Number = c + 1;
-                if (ch.Sections == null) ch.Sections = new List<OutlineSection>();
-                for (int s = 0; s < ch.Sections.Count; s++)
-                    ch.Sections[s].Number = (c + 1) + "." + (s + 1);
-            }
-        }
+        /// <summary>Chapter numbers come from the shot list; sections are "c.n".</summary>
+        public void Renumber(string bookId) => TripNormalizer.SyncOutlines(D);
 
         private void Finish(string bookId)
         {
-            Renumber(bookId);
             _s.MarkDirty(DocumentKind.Outline, bookId);
         }
 

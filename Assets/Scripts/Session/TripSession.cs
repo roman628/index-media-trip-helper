@@ -19,7 +19,7 @@ namespace MediaTrip.Session
     /// dirty; the autosaver writes them shortly after. Nothing here ever edits a planned
     /// shot-list entry to record a capture.
     /// </summary>
-    public sealed class TripSession : IDisposable
+    public sealed partial class TripSession : IDisposable
     {
         public TripData Data { get; }
         public Autosaver Autosaver { get; }
@@ -121,6 +121,9 @@ namespace MediaTrip.Session
                 else _dirtyOutlineBooks.Add(outlineBookId);
             }
             else _dirtyDocs.Add(kind);
+            // Chapters belong to the shot list; every outline echoes them and numbers its sections from them.
+            if (kind == DocumentKind.ShotList || kind == DocumentKind.Outline)
+                foreach (var bookId in TripNormalizer.SyncOutlines(Data).OutlinesChanged) _dirtyOutlineBooks.Add(bookId);
             Invalidate();
             Autosaver.MarkDirty();
         }
@@ -130,6 +133,7 @@ namespace MediaTrip.Session
             _dirtyDocs.Add(DocumentKind.Trip);
             _dirtyDocs.Add(DocumentKind.ShotList);
             _dirtyDocs.Add(DocumentKind.Captures);
+            TripNormalizer.SyncOutlines(Data);
             foreach (var k in Data.Outlines.Keys) _dirtyOutlineBooks.Add(k);
             Invalidate();
             Autosaver.MarkDirty();
@@ -197,6 +201,7 @@ namespace MediaTrip.Session
             if (capture == null) throw new ArgumentNullException(nameof(capture));
             if (string.IsNullOrEmpty(capture.Id)) capture.Id = Ids.New("cap");
             if (capture.CapturedOrder <= 0) capture.CapturedOrder = Queries.NextCapturedOrder(capture.DayId);
+            if (string.IsNullOrEmpty(capture.At)) capture.At = Now();
             var item = Plan.FindItem(capture.PlanVideoId);
             if (item != null)
             {
@@ -229,6 +234,7 @@ namespace MediaTrip.Session
             if (pc == null) throw new ArgumentNullException(nameof(pc));
             if (string.IsNullOrEmpty(pc.Id)) pc.Id = Ids.New("pc");
             if (pc.CapturedOrder <= 0) pc.CapturedOrder = Queries.NextCapturedOrder(pc.DayId);
+            if (string.IsNullOrEmpty(pc.At)) pc.At = Now();
             Data.Captures.PhotoCaptures.Add(pc);
             MarkDirty(DocumentKind.Captures);
             return pc;
@@ -291,6 +297,72 @@ namespace MediaTrip.Session
         {
             Data.Captures.PhotoCaptures.RemoveAll(c => c.Id == photoCaptureId);
             Data.Captures.OutlineAssignments.RemoveAll(a => a.MediaRef != null && a.MediaRef.Kind == MediaRefKind.PhotoCapture && a.MediaRef.Id == photoCaptureId);
+            foreach (var h in Data.Captures.HeroAssignments) if (h.PhotoCaptureId == photoCaptureId) h.PhotoCaptureId = null;
+            MarkDirty(DocumentKind.Captures);
+        }
+
+        /// <summary>
+        /// Set the summary order of one day. <paramref name="orderedIds"/> are capture and photo
+        /// capture ids in the order wanted; entries of the day that are not listed keep their
+        /// relative order after the listed ones. Orders are rewritten 1..n.
+        /// </summary>
+        public void ReorderDay(string dayId, IList<string> orderedIds)
+        {
+            var current = Queries.DayTimeline(dayId);
+            var rank = new Dictionary<string, int>();
+            for (int i = 0; i < (orderedIds?.Count ?? 0); i++) if (orderedIds[i] != null && !rank.ContainsKey(orderedIds[i])) rank[orderedIds[i]] = i;
+            var sorted = current
+                .Select((e, i) => (e, i))
+                .OrderBy(t => rank.TryGetValue(t.e.Id ?? "", out var r) ? r : int.MaxValue).ThenBy(t => t.i)
+                .Select(t => t.e).ToList();
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                if (sorted[i].Capture != null) sorted[i].Capture.CapturedOrder = i + 1;
+                else sorted[i].PhotoCapture.CapturedOrder = i + 1;
+            }
+            MarkDirty(DocumentKind.Captures);
+        }
+
+        /// <summary>Move one summary entry up (-1) or down (+1) within its day. Returns false at the ends.</summary>
+        public bool MoveDayEntry(string dayId, string entryId, int delta)
+        {
+            var ids = Queries.DayTimeline(dayId).Select(e => e.Id).ToList();
+            var i = ids.IndexOf(entryId);
+            var j = i + delta;
+            if (i < 0 || j < 0 || j >= ids.Count) return false;
+            ids.RemoveAt(i);
+            ids.Insert(j, entryId);
+            ReorderDay(dayId, ids);
+            return true;
+        }
+
+        // ------------------------------------------------------------------
+        // Typed mutations: hero slots and section notes
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Fill a hero slot (chapterId null = the book cover) with a master-list photo or with a
+        /// new photo described by <paramref name="text"/>. The planned hero is left as it is.
+        /// </summary>
+        public HeroAssignment AssignHero(string bookId, string chapterId, string photoId, string text, string photoCaptureId = null)
+        {
+            if (string.IsNullOrEmpty(photoId) && string.IsNullOrWhiteSpace(text))
+                throw new ArgumentException("A hero assignment needs a photo id or a description.");
+            var existing = Data.Captures.HeroAssignments.FirstOrDefault(h => h.BookId == bookId && h.ChapterId == chapterId && photoId != null && h.PhotoId == photoId);
+            if (existing != null) return existing;
+            var a = new HeroAssignment
+            {
+                Id = Ids.New("ha"), BookId = bookId, ChapterId = chapterId, PhotoId = string.IsNullOrEmpty(photoId) ? null : photoId,
+                Text = string.IsNullOrEmpty(photoId) ? text.Trim() : null, At = Now(), PhotoCaptureId = photoCaptureId,
+            };
+            Data.Captures.HeroAssignments.Add(a);
+            MarkDirty(DocumentKind.Captures);
+            return a;
+        }
+
+        public void RemoveHeroAssignment(string assignmentId)
+        {
+            Data.Captures.HeroAssignments.RemoveAll(h => h.Id == assignmentId);
             MarkDirty(DocumentKind.Captures);
         }
 
@@ -316,9 +388,11 @@ namespace MediaTrip.Session
         /// <summary>
         /// Remove an amendment and put things back: captures of a combined result go back onto
         /// the first source with its planned title and number; a rename's captures get the
-        /// planned title back; an unplanned add takes its captures (and their assignments) with it.
+        /// planned title back. Undoing an add keeps what was filmed of it as an unplanned
+        /// capture tagged with what it was, unless <paramref name="deleteCaptures"/> says the
+        /// capture was a mistake too.
         /// </summary>
-        public void UndoAmendment(string amendmentId)
+        public void UndoAmendment(string amendmentId, bool deleteCaptures = false)
         {
             var a = Data.FindAmendment(amendmentId);
             if (a == null) return;
@@ -350,8 +424,28 @@ namespace MediaTrip.Session
                 }
                 case AmendmentType.Add:
                 {
+                    if (a.NewMedia == MediaKind.Photo)
+                    {
+                        // The photo leaves the working copy; what was logged of it stays, under its description.
+                        foreach (var id in results)
+                        {
+                            foreach (var c in Data.Captures.Captures)
+                                foreach (var cp in c.Photos ?? new List<CapturePhoto>())
+                                    if (cp.PhotoId == id) { cp.PhotoId = null; if (string.IsNullOrEmpty(cp.Text)) cp.Text = a.NewTitle; }
+                            foreach (var pc in Data.Captures.PhotoCaptures.Where(p => p.PhotoId == id)) { pc.PhotoId = null; if (string.IsNullOrEmpty(pc.Text)) pc.Text = a.NewTitle; }
+                            Data.Captures.HeroAssignments.RemoveAll(h => h.PhotoId == id);
+                            Data.Captures.OutlineAssignments.RemoveAll(o => o.MediaRef?.Kind == MediaRefKind.PlannedPhoto && o.MediaRef.Id == id);
+                            Data.Captures.Amendments.RemoveAll(x => x != a && (x.Targets?.Contains(id) ?? false));
+                        }
+                        break;
+                    }
                     foreach (var c in Data.Captures.Captures.Where(c => c.PlanVideoId != null && results.Contains(c.PlanVideoId)).ToList())
-                        RemoveCapture(c.Id);
+                    {
+                        if (deleteCaptures) RemoveCapture(c.Id);
+                        else DetachCapture(c.Id);
+                    }
+                    foreach (var id in results)
+                        Data.Captures.OutlineAssignments.RemoveAll(o => o.MediaRef?.Kind == MediaRefKind.PlannedVideo && o.MediaRef.Id == id);
                     break;
                 }
             }
@@ -586,9 +680,7 @@ namespace MediaTrip.Session
             if (Data.Outlines.TryGetValue(bookId, out var existing)) return existing;
             var book = Data.FindBook(bookId);
             var outline = new OutlineDocument { TripId = Data.TripId, BookId = bookId, BookTitle = book?.Name };
-            foreach (var ch in Data.ChaptersOf(bookId))
-                outline.Chapters.Add(new OutlineChapter { Id = ch.Id, Number = ch.Number, Name = ch.Name, Notes = "" });
-            Data.Outlines[bookId] = outline;
+            Data.Outlines[bookId] = outline;   // its chapters are the book's plan chapters, attached on the next line's sync
             MarkDirty(DocumentKind.Outline, bookId);
             return outline;
         }

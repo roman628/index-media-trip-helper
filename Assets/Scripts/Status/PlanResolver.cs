@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using MediaTrip.Model;
+using Newtonsoft.Json.Linq;
 
 namespace MediaTrip.Status
 {
@@ -109,7 +110,21 @@ namespace MediaTrip.Status
     /// <summary>A master-list photo with its derived capture status.</summary>
     public class PhotoItem
     {
+        /// <summary>
+        /// The photo as the working copy has it. For a planned photo that no amendment moved this
+        /// is the shot list's own object; a moved photo gets a copy with the new book and chapter;
+        /// a photo added during the trip gets one made from its add amendment.
+        /// </summary>
         public Photo Photo;
+        /// <summary>The shot list's entry; null for a photo added during the trip.</summary>
+        public Photo Planned;
+        /// <summary>Added during the trip: not on the original list.</summary>
+        public bool IsNew => Planned == null;
+        public Amendment CreatedBy;
+        public string OriginalDescription;
+        /// <summary>Every amendment that names this photo, in applied order.</summary>
+        public List<Amendment> Amendments = new List<Amendment>();
+        public bool WasMoved => Planned != null && (Planned.BookId != Photo.BookId || Planned.ChapterId != Photo.ChapterId);
         public string Id => Photo.Id;
         public string BookId => Photo.BookId;
         public string ChapterId => Photo.ChapterId;
@@ -266,7 +281,7 @@ namespace MediaTrip.Status
             foreach (var p in data.ShotList.Photos)
             {
                 if (plan.FindPhoto(p.Id) != null) { plan.Issues.Add($"Duplicate photo id '{p.Id}' in shot list; later entry ignored."); continue; }
-                plan.Register(new PhotoItem { Photo = p, Description = p.Description });
+                plan.Register(new PhotoItem { Photo = p, Planned = p, Description = p.Description, OriginalDescription = p.Description });
             }
 
             // 3. Amendments, in timestamp order (list index breaks ties).
@@ -364,6 +379,7 @@ namespace MediaTrip.Status
                         if (photo != null)
                         {
                             if (!string.IsNullOrEmpty(am.NewTitle)) photo.Description = am.NewTitle;
+                            photo.Amendments.Add(am);
                             continue;
                         }
                         plan.Issues.Add($"Amendment '{am.Id}' (rename) targets unknown item '{t}'.");
@@ -374,7 +390,13 @@ namespace MediaTrip.Status
                     foreach (var t in targets)
                     {
                         var item = plan.FindItem(t);
-                        if (item == null) { plan.Issues.Add($"Amendment '{am.Id}' (move) targets unknown item '{t}'."); continue; }
+                        if (item == null)
+                        {
+                            var moved = plan.FindPhoto(t);
+                            if (moved == null) { plan.Issues.Add($"Amendment '{am.Id}' (move) targets unknown item '{t}'."); continue; }
+                            MovePhoto(plan, moved, am);
+                            continue;
+                        }
                         if (!string.IsNullOrEmpty(am.NewChapterId))
                         {
                             item.ChapterId = am.NewChapterId;
@@ -396,8 +418,25 @@ namespace MediaTrip.Status
                         var item = plan.FindItem(t);
                         if (item != null) { item.DropAmendment = am; item.Amendments.Add(am); continue; }
                         var photo = plan.FindPhoto(t);
-                        if (photo != null) { photo.DropAmendment = am; continue; }
+                        if (photo != null) { photo.DropAmendment = am; photo.Amendments.Add(am); continue; }
                         plan.Issues.Add($"Amendment '{am.Id}' (drop) targets unknown item '{t}'.");
+                    }
+                    break;
+
+                case AmendmentType.Revise:
+                    foreach (var t in targets)
+                    {
+                        var item = plan.FindItem(t);
+                        if (item != null) { ApplyRevision(item, am); item.Amendments.Add(am); continue; }
+                        var photo = plan.FindPhoto(t);
+                        if (photo != null)
+                        {
+                            foreach (var c in am.Changes ?? new List<FieldChange>())
+                                if (c.Field == FieldChange.Description && c.After != null && c.After.Type == JTokenType.String) photo.Description = (string)c.After;
+                            photo.Amendments.Add(am);
+                            continue;
+                        }
+                        plan.Issues.Add($"Amendment '{am.Id}' (revise) targets unknown item '{t}'.");
                     }
                     break;
 
@@ -405,9 +444,18 @@ namespace MediaTrip.Status
                     for (int i = 0; i < results.Count; i++)
                     {
                         var id = results[i];
-                        if (plan.HasItem(id)) { plan.Issues.Add($"Amendment '{am.Id}' (add) result '{id}' already exists."); continue; }
+                        if (plan.HasItem(id) || plan.FindPhoto(id) != null) { plan.Issues.Add($"Amendment '{am.Id}' (add) result '{id}' already exists."); continue; }
                         var title = TitleFor(am, i) ?? "(untitled)";
                         var chapter = plan.Data.FindChapter(am.NewChapterId);
+                        if (am.NewMedia == MediaKind.Photo)
+                        {
+                            // A photo added during the trip: in the working copy, never in the original list.
+                            var made = new Photo { Id = id, BookId = am.NewBookId ?? chapter?.BookId, ChapterId = am.NewChapterId, HeroType = HeroType.None, Description = title, Order = int.MaxValue };
+                            var newPhoto = new PhotoItem { Photo = made, Planned = null, Description = title, OriginalDescription = title, CreatedBy = am };
+                            newPhoto.Amendments.Add(am);
+                            plan.Register(newPhoto);
+                            continue;
+                        }
                         var item = new PlanItem
                         {
                             Id = id,
@@ -530,6 +578,50 @@ namespace MediaTrip.Status
                     break;
             }
         }
+
+        /// <summary>A photo moved in the working copy: the shot list's entry stays where it was printed.</summary>
+        private static void MovePhoto(ResolvedPlan plan, PhotoItem photo, Amendment am)
+        {
+            var chapter = plan.Data.FindChapter(am.NewChapterId);
+            var bookId = !string.IsNullOrEmpty(am.NewBookId) ? am.NewBookId : (chapter?.BookId ?? photo.BookId);
+            var copy = ReferenceEquals(photo.Photo, photo.Planned) ? MediaTrip.Persistence.TripJson.Clone(photo.Photo) : photo.Photo;
+            var leftBook = copy.BookId != bookId;
+            copy.BookId = bookId;
+            copy.ChapterId = string.IsNullOrEmpty(am.NewChapterId) ? (leftBook ? null : copy.ChapterId) : am.NewChapterId;
+            // a chapter hero needs its chapter; without one it is an ordinary photo of the new book
+            if (copy.HeroType == HeroType.ChapterHero && copy.ChapterId == null) copy.HeroType = HeroType.None;
+            photo.Photo = copy;
+            photo.Amendments.Add(am);
+        }
+
+        /// <summary>Content edited in the working copy. Each change carries the new value; the shot list is untouched.</summary>
+        private static void ApplyRevision(PlanItem item, Amendment am)
+        {
+            foreach (var c in am.Changes ?? new List<FieldChange>())
+            {
+                try
+                {
+                    switch (c.Field)
+                    {
+                        case FieldChange.Scene: item.SceneDescription = Text(c.After); break;
+                        case FieldChange.SmeText: item.SmeText = Text(c.After); break;
+                        case FieldChange.SmeIds: item.SmeIds = Strings(c.After); break;
+                        case FieldChange.PhotoRefs: item.PhotoRefs = Strings(c.After); break;
+                        case FieldChange.Notes:
+                            item.Notes = c.After == null || c.After.Type == JTokenType.Null
+                                ? new List<Node>()
+                                : c.After.ToObject<List<Node>>(MediaTrip.Persistence.TripJson.CreateSerializer());
+                            break;
+                    }
+                }
+                catch (Exception) { /* a malformed value leaves the field as it was */ }
+            }
+        }
+
+        private static string Text(JToken t) => t == null || t.Type == JTokenType.Null ? null : t.Type == JTokenType.String ? (string)t : t.ToString();
+
+        private static List<string> Strings(JToken t) =>
+            t is JArray a ? a.Where(x => x.Type == JTokenType.String).Select(x => (string)x).ToList() : new List<string>();
 
         /// <summary>Place a virtual item after the planned video it descends from (first source, transitively).</summary>
         private static void Anchor(ResolvedPlan plan, Dictionary<string, List<PlanItem>> virtualByAnchor, List<PlanItem> added, PlanItem item, PlanItem firstSource)

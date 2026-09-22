@@ -1,53 +1,9 @@
-using System;
-using System.Collections.Generic;
 using System.Linq;
-using MediaTrip.Model;
-using MediaTrip.Persistence;
-using MediaTrip.UI.ViewModels;
 using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace MediaTrip.UI.Shell
 {
-    /// <summary>Keyboard and touch reference (Cmd+/ or the keyboard button).</summary>
-    public static class HelpSheet
-    {
-        public static VisualElement Build(AppController app)
-        {
-            var sheet = new VisualElement().Cls("sheet xwide");
-            var m = Shortcuts.Meta;
-            sheet.Add(U.Row(U.H2("Keyboard and touch").Cls("grow"), U.Btn("Close", () => { app.State.Help = false; app.Render(); }, "sm")).Mb(12));
-            var cols = U.Row().Cls("stretch");
-            cols.style.alignItems = Align.FlexStart;
-            var left = U.Col(U.Eyebrow("Lists and outliners").Mb(8)).Cls("grow").Mr(24);
-            foreach (var (k, t) in new[]
-            {
-                ("↑ ↓", "Select previous / next"), ("Enter", "New sibling below"), ("⇧Enter", "New child"),
-                ("Tab ⇧Tab", "Indent / outdent (outliners) · next field (forms)"), ("⌥↑ ⌥↓", "Move up / down"),
-                (m + "D", "Duplicate"), (m + "⌫", "Delete (⌫ on an empty bullet)"), (m + "⇧V", "Paste as nested bullets"),
-                ("Esc", "Leave the field, keep the row selected"),
-            }) left.Add(RowOf(k, t));
-            var right = U.Col(U.Eyebrow("Everywhere").Mb(8)).Cls("grow");
-            foreach (var (k, t) in new[] { (m + "F", "Search"), (m + "1 … " + m + "7", "Authoring tabs"), (m + "/", "This sheet"), (m + "S", "Save now") })
-                right.Add(RowOf(k, t));
-            right.Add(U.Eyebrow("Touch equivalents").Mt(16).Mb(8));
-            right.Add(U.Body("Tap to select · tap text to edit · every outline operation is on the bar at the bottom · Up / Down on that bar reorder · the ≡ handle marks what the bar acts on."));
-            cols.Add(left); cols.Add(right);
-            sheet.Add(cols);
-            return app.Overlay(sheet, () => { app.State.Help = false; app.Render(); });
-        }
-
-        private static VisualElement RowOf(string keys, string text)
-        {
-            var r = U.Row().MinH(40);
-            var kk = U.Row().W(160);
-            foreach (var k in keys.Split(' ')) { var kb = U.Kbd(k); kb.style.marginLeft = 0; kb.Mr(4); kk.Add(kb); }
-            r.Add(kk);
-            r.Add(U.Body(text).Cls("grow"));
-            return r;
-        }
-    }
-
     /// <summary>The five schemes in light and dark, with the contrast ratios that matter. Tap a card to apply.</summary>
     public static class ThemeSheet
     {
@@ -55,18 +11,13 @@ namespace MediaTrip.UI.Shell
 
         private static VisualElement Build(AppController app)
         {
-            var sheet = new VisualElement().Cls("sheet wide");
-            sheet.style.maxHeight = 760;
-            sheet.Add(U.Row(U.Col(U.H2("Color scheme"), U.Sub("Ledger light is the default. Beacon is the sun mode (also on the ☀ button). Status never relies on hue: ring, filled check, half circle, X, grey arrow.")).Cls("grow"),
-                U.Toggle(app.Theme.Dark ? "Dark" : "Light", app.Theme.Dark, () => { app.Theme.ToggleDark(); ThemeSheet.Open(app); }).Mr(10),
-                U.Btn("Close", app.CloseSheet, "sm")).Mb(12));
-            var grid = U.Row().Cls("wrap");
-            grid.style.alignItems = Align.FlexStart;
+            var head = app.SheetHead("Theme", app.CloseSheet,
+                U.Toggle("Dark", app.Theme.Dark, () => { app.Theme.ToggleDark(); Open(app); }));
+            var grid = U.Row().Cls("wrap top-align");
             foreach (var name in ThemeManager.Names)
                 foreach (var dark in new[] { false, true })
                     grid.Add(Card(app, name, dark));
-            sheet.Add(U.Scroll(grid));
-            return app.Overlay(sheet, app.CloseSheet);
+            return app.Sheet(1040, app.CloseSheet, head, U.Scroll(grid));
         }
 
         private static VisualElement Card(AppController app, string name, bool dark)
@@ -90,8 +41,7 @@ namespace MediaTrip.UI.Shell
             foreach (var (label, ratio) in new[]
             {
                 ("Text / bg", ThemeManager.Contrast(tx, bg)), ("Text 2 / bg", ThemeManager.Contrast(tx2, bg)),
-                ("Accent text / accent", ThemeManager.Contrast(acTx, ac)), ("Accent / bg", ThemeManager.Contrast(ac, bg)),
-                ("Captured text / fill", ThemeManager.Contrast(okTx, ok)), ("Dropped / bg", ThemeManager.Contrast(bad, bg)),
+                ("Accent text / accent", ThemeManager.Contrast(acTx, ac)), ("Captured text / fill", ThemeManager.Contrast(okTx, ok)),
             })
             {
                 var r = U.Row(U.Text(label).Font(12).Cls("grow"), U.Text(ratio.ToString("0.0") + ":1").Font(12).Bold()).Mt(3);
@@ -104,88 +54,100 @@ namespace MediaTrip.UI.Shell
         }
     }
 
-    /// <summary>Trip library: open, create, duplicate, delete, export.</summary>
-    public static class LibrarySheet
+    /// <summary>A yes / no question before something that cannot be undone.</summary>
+    public static class ConfirmSheet
     {
-        public static void Open(AppController app) => app.ShowSheet(() => Build(app));
-
-        private static VisualElement Build(AppController app)
-        {
-            var sheet = new VisualElement().Cls("sheet wide");
-            sheet.style.maxHeight = 720;
-            var head = U.Row(U.Col(U.H1("Media trips"), U.Sub("Stored on this device · JSON")).Cls("grow"),
-                U.Btn("+ New trip", () => NewTrip(app), "pri"),
-                U.Btn("Import…", () => { app.CloseSheet(); app.Nav(Screen.IO); }, "ml10"),
-                U.Btn("Close", app.CloseSheet, "sm ml10")).Mb(16);
-            sheet.Add(head);
-            var list = U.Scroll();
-            foreach (var t in TripLibrary.ListTrips())
-            {
-                var current = t.TripId == app.Session.Data.TripId;
-                var card = U.Card().Cls("row").Mb(12).MinH(96);
-                if (current) card.Cls("ac");
-                string sub;
-                if (t.LoadError != null) sub = "Cannot open: " + t.LoadError;
-                else
-                {
-                    sub = (string.IsNullOrEmpty(t.City) ? "" : t.City + " · ") + U.FmtDate(t.Arrive) + " – " + U.FmtDate(t.Depart);
-                }
-                var open = U.Tap(() => { if (t.LoadError == null && !current) { app.CloseSheet(); app.OpenTrip(t.TripId); app.Toast("Opened " + t.DisplayName); } else app.CloseSheet(); }, "grow row",
-                    U.Col(U.Row(U.H2(U.Esc(t.DisplayName)).Mr(12), current ? U.Pill("Open", "ac") : null), U.Sub(sub)).Cls("grow"));
-                open.MinH(64);
-                card.Add(open);
-                card.Add(U.Btn("Duplicate", () => Duplicate(app, t.TripId), "sm ml10"));
-                card.Add(U.Btn("Delete", () => ConfirmDelete(app, t), "sm danger ml8"));
-                list.Add(card);
-            }
-            sheet.Add(list);
-            return app.Overlay(sheet, app.CloseSheet);
-        }
-
-        private static void NewTrip(AppController app)
-        {
-            var created = TripLibrary.CreateTrip("NEW", "TRIP");
-            app.CloseSheet();
-            app.OpenTrip(created.TripId);
-            app.Nav(Screen.Trip);
-            app.Toast("New trip · fill in client, program, phase and dates");
-        }
-
-        private static void Duplicate(AppController app, string tripId)
-        {
-            try
-            {
-                var copy = TripLibrary.DuplicateTrip(tripId, includeCaptures: false);
-                app.CloseSheet();
-                app.OpenTrip(copy.TripId);
-                app.Nav(Screen.Trip);
-                app.Toast("Duplicated · captures cleared, plan and outlines kept");
-            }
-            catch (Exception ex) { app.Toast("Duplicate failed: " + ex.Message); }
-        }
-
-        private static void ConfirmDelete(AppController app, TripSummary t)
+        public static void Open(AppController app, string title, string body, string action, System.Action onYes)
         {
             app.ShowSheet(() =>
             {
-                var sheet = new VisualElement().Cls("sheet");
-                sheet.Add(U.H2("Delete " + U.Esc(t.DisplayName) + "?").Mb(8));
-                sheet.Add(U.Body("This removes the trip's folder from this device. Export it first if you want a copy.").Mb(16));
-                sheet.Add(U.Row(U.Btn("Cancel", () => Open(app), "big"), U.Grow(), U.Btn("Delete trip", () =>
-                {
-                    var wasCurrent = t.TripId == app.Session.Data.TripId;
-                    if (wasCurrent) app.CloseTrip();
-                    TripLibrary.DeleteTrip(t.TripId);
-                    app.CloseSheet();
-                    if (wasCurrent)
-                    {
-                        var next = TripLibrary.ListTrips().FirstOrDefault(x => x.LoadError == null);
-                        if (next != null) app.OpenTrip(next.TripId); else { var c = TripLibrary.CreateTrip("NEW", "TRIP"); app.OpenTrip(c.TripId); }
-                    }
-                    app.Toast("Deleted " + t.DisplayName);
-                }, "big danger")));
-                return app.Overlay(sheet, () => Open(app));
+                var buttons = U.Row(U.Btn("Cancel", app.CloseSheet, "big"), U.Grow(), U.Btn(action, () => { app.CloseSheet(); onYes(); }, "big danger"));
+                buttons.style.flexShrink = 0;
+                return app.Sheet(560, app.CloseSheet, U.H2(title).Mb(8), U.Scroll(U.Body(body)).Mb(16), buttons);
             });
+        }
+    }
+
+    /// <summary>
+    /// A question with more than two answers. Cancel is always there and always does nothing,
+    /// so the user can go and look at something and come back. The first option is the default
+    /// (drawn as the primary action).
+    /// </summary>
+    public static class ChoiceSheet
+    {
+        public sealed class Option
+        {
+            public string Label;
+            public System.Action Act;
+            public bool Danger;
+            public Option(string label, System.Action act, bool danger = false) { Label = label; Act = act; Danger = danger; }
+        }
+
+        public static void Open(AppController app, string title, System.Collections.Generic.IEnumerable<string> lines, params Option[] options)
+        {
+            app.ShowSheet(() =>
+            {
+                var body = U.Scroll();
+                foreach (var line in lines ?? new string[0]) body.Add(U.Body(U.Esc(line)).Mb(8));
+                var buttons = U.Col();
+                buttons.style.flexShrink = 0;
+                bool first = true;
+                foreach (var o in options)
+                {
+                    var opt = o;
+                    buttons.Add(U.Btn(opt.Label, () => { app.CloseSheet(); opt.Act?.Invoke(); }, "big mb8" + (opt.Danger ? " danger" : first ? " pri" : "")));
+                    first = false;
+                }
+                buttons.Add(U.Btn("Cancel", app.CloseSheet, "big ghost"));
+                return app.Sheet(600, app.CloseSheet, U.H2(title).Mb(10), body.Mb(12), buttons);
+            });
+        }
+    }
+
+    /// <summary>The keystrokes that work on the screen being looked at. Offered in the ⋯ menu when a keyboard is attached.</summary>
+    public static class ShortcutsSheet
+    {
+        public static (string keys, string what)[] For(Screen screen, bool edit)
+        {
+            var m = Shortcuts.Meta;
+            var list = new System.Collections.Generic.List<(string, string)>
+            {
+                (m + " F", "Search"), (m + " 1 … 5", "Trip · Shot list · Outlines · Covers · Summary"), (m + " S", "Save now"), ("Esc", "Close what is on top"),
+            };
+            if (Screens.HasEdit(screen)) list.Add((m + " E", edit ? "Done editing" : "Edit"));
+            if (screen == Screen.Outlines && edit)
+            {
+                list.Add(("Enter", "In a chapter name: its first section. In a section name: the next section"));
+                list.Add((m + " Enter", "A new chapter after this one"));
+                list.Add(("Tab", "In a section name: into its bullets"));
+                list.Add(("Alt ↑ ↓", "Move the chapter or section up or down"));
+                list.Add(("↑ ↓", "Previous or next name"));
+            }
+            if ((screen == Screen.Outlines || screen == Screen.ShotList) && edit)
+            {
+                list.Add(("Enter", "In a bullet: a new bullet below"));
+                list.Add(("Shift Enter", "In a bullet: a new bullet inside it"));
+                list.Add(("Tab · Shift Tab", "In a bullet: indent · outdent"));
+                list.Add(("Alt ↑ ↓", "In a bullet: move it up or down"));
+                list.Add(("Backspace", "On an empty bullet: delete it"));
+            }
+            if (screen == Screen.ShotList && edit) list.Add(("Enter", "In a video or photo name: done, collapse the row"));
+            if ((screen == Screen.ShotList && !edit) || screen == Screen.Outlines) list.Add((m + " ] · " + m + " [", "Expand all · Collapse all"));
+            return list.ToArray();
+        }
+
+        public static VisualElement Build(AppController app)
+        {
+            var st = app.State;
+            void Close() { st.Shortcuts = false; app.Render(); }
+            var body = U.Scroll();
+            foreach (var (keys, what) in For(st.Screen, st.Edit))
+            {
+                var row = U.Row(U.Text(U.Esc(keys), "bold").W(app.Layout.Phone ? 120 : 170), U.Text(U.Esc(what), "body-sm grow")).MinH(40).Cls("top-align");
+                row.style.paddingTop = 6; row.style.paddingBottom = 6;
+                body.Add(row);
+            }
+            return app.Sheet(640, Close, app.SheetHead("Shortcuts · " + Screens.Label(st.Screen), Close), body);
         }
     }
 }

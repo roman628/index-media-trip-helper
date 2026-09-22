@@ -23,8 +23,11 @@ namespace MediaTrip.Persistence
         private static readonly Dictionary<int, Action<JObject, DocumentKind>> Steps =
             new Dictionary<int, Action<JObject, DocumentKind>>
             {
-                // Example for the future:
-                // [1] = (doc, kind) => { if (kind == DocumentKind.Captures) RenameProperty(doc, "old", "new"); },
+                // 1 -> 2: chapters are owned by the shot list and notes are unified. Both span
+                // documents (an outline chapter is matched to a plan chapter; chapter notes move
+                // from the outline to captures.json), so the work is done by TripNormalizer once
+                // the whole trip is loaded. Nothing changes inside a single document here.
+                [1] = (doc, kind) => { },
             };
 
         public static JObject Migrate(JObject doc, DocumentKind kind, string sourceName = null)

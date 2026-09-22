@@ -8,6 +8,7 @@ namespace MediaTrip.UI
         None, Check, Half, Cross, Arrow, Star, Plus, Minus, ChevronDown, ChevronUp, ChevronRight,
         Lines, Search, Keyboard, Sun, Moon, Question, Person, Copy, ChildArrow, Outdent, Indent,
         ArrowUp, ArrowDown, Braces, Dot, Ring, Pencil, Circle,
+        Target, List, Square, Play, Frame, Dots, ChevronLeft,
     }
 
     /// <summary>
@@ -244,6 +245,61 @@ namespace MediaTrip.UI
                     p.MoveTo(new Vector2(cx - s * 0.3f, cy + s * 0.3f)); p.LineTo(new Vector2(cx - s * 0.22f, cy + s * 0.06f));
                     p.LineTo(new Vector2(cx + s * 0.18f, cy - s * 0.34f)); p.LineTo(new Vector2(cx + s * 0.34f, cy - s * 0.18f));
                     p.LineTo(new Vector2(cx - s * 0.06f, cy + s * 0.22f)); p.ClosePath();
+                    p.Stroke();
+                    break;
+                case GlyphKind.Target:
+                    p.BeginPath();
+                    p.Arc(new Vector2(cx, cy), s * 0.36f, 0, 360);
+                    p.Stroke();
+                    p.BeginPath();
+                    p.Arc(new Vector2(cx, cy), s * 0.12f, 0, 360);
+                    p.Fill();
+                    break;
+                case GlyphKind.List:
+                    p.BeginPath();
+                    for (int i = -1; i <= 1; i++)
+                    {
+                        var y = cy + i * s * 0.24f;
+                        p.MoveTo(new Vector2(cx - s * 0.36f, y)); p.LineTo(new Vector2(cx - s * 0.30f, y));
+                        p.MoveTo(new Vector2(cx - s * 0.12f, y)); p.LineTo(new Vector2(cx + s * 0.36f, y));
+                    }
+                    p.Stroke();
+                    break;
+                case GlyphKind.Square:
+                {
+                    float a = s * 0.34f, b = s * 0.13f;
+                    p.BeginPath();
+                    p.MoveTo(new Vector2(cx - a, cy - a)); p.LineTo(new Vector2(cx + a, cy - a)); p.LineTo(new Vector2(cx + a, cy + a)); p.LineTo(new Vector2(cx - a, cy + a)); p.ClosePath();
+                    p.Stroke();
+                    p.BeginPath();
+                    p.MoveTo(new Vector2(cx - b, cy - b)); p.LineTo(new Vector2(cx + b, cy - b)); p.LineTo(new Vector2(cx + b, cy + b)); p.LineTo(new Vector2(cx - b, cy + b)); p.ClosePath();
+                    p.Fill();
+                    break;
+                }
+                case GlyphKind.Play:
+                    p.BeginPath();
+                    p.MoveTo(new Vector2(cx - s * 0.24f, cy - s * 0.32f)); p.LineTo(new Vector2(cx + s * 0.34f, cy)); p.LineTo(new Vector2(cx - s * 0.24f, cy + s * 0.32f)); p.ClosePath();
+                    p.Fill();
+                    break;
+                case GlyphKind.Frame:
+                {
+                    float a = s * 0.38f, b = s * 0.26f;
+                    p.BeginPath();
+                    p.MoveTo(new Vector2(cx - a, cy - b)); p.LineTo(new Vector2(cx + a, cy - b)); p.LineTo(new Vector2(cx + a, cy + b)); p.LineTo(new Vector2(cx - a, cy + b)); p.ClosePath();
+                    p.Stroke();
+                    break;
+                }
+                case GlyphKind.Dots:
+                    for (int i = -1; i <= 1; i++)
+                    {
+                        p.BeginPath();
+                        p.Arc(new Vector2(cx + i * s * 0.28f, cy), s * 0.08f, 0, 360);
+                        p.Fill();
+                    }
+                    break;
+                case GlyphKind.ChevronLeft:
+                    p.BeginPath();
+                    p.MoveTo(new Vector2(cx + s * 0.14f, cy - s * 0.28f)); p.LineTo(new Vector2(cx - s * 0.14f, cy)); p.LineTo(new Vector2(cx + s * 0.14f, cy + s * 0.28f));
                     p.Stroke();
                     break;
                 case GlyphKind.Braces:

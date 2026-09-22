@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "tripId": "trip-sample-0001",
   "bookId": "b-001",
   "bookTitle": "Confined Space Entry",
@@ -34,8 +34,7 @@
             { "id": "o-112b", "label": "b", "text": "Walkthrough example", "children": [] }
           ]
         }
-      ],
-      "notes": "Consider opening the chapter on the gallery wide shot."
+      ]
     },
     {
       "id": "c-102",
@@ -59,8 +58,7 @@
             { "id": "o-122a", "label": "a", "text": "Oxygen, then flammables, then toxics", "children": [] }
           ]
         }
-      ],
-      "notes": ""
+      ]
     }
   ]
 }

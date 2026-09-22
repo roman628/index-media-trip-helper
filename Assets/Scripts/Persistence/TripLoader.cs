@@ -78,6 +78,8 @@ namespace MediaTrip.Persistence
                     result.Warnings.Add($"{doc.GetType().Name} tripId '{doc.TripId}' does not match trip.json '{data.Trip.TripId}'.");
             }
 
+            // Rules that span documents: chapters live in the shot list, notes in one list.
+            result.Warnings.AddRange(TripNormalizer.Normalize(data).Log);
             return result;
         }
 

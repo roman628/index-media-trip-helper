@@ -23,32 +23,72 @@ namespace MediaTrip.Tests
         }
 
         [Test]
-        public void Chapters_AddReorderRemove_Renumber()
+        public void Chapters_AreThePlansChapters_AddReorderRemove()
         {
             var s = Sample();
             var ch = s.Outline.AddChapter("b-001", "Rescue Planning");
             Assert.AreEqual(3, ch.Number);
+            Assert.AreEqual("Rescue Planning", s.Data.FindChapter(ch.Id).Name, "typing a chapter into an outline creates it in the shot list: the same object");
+            Assert.AreEqual("b-001", s.Data.FindChapter(ch.Id).BookId);
+
             s.Outline.ReorderChapter("b-001", ch.Id, 0);
-            Assert.AreEqual(1, ch.Number);
+            Assert.AreEqual(1, s.Data.FindChapter(ch.Id).Number);
+            Assert.AreEqual(1, s.Outline.FindChapter("b-001", ch.Id).Number);
             Assert.AreEqual(2, s.Outline.FindChapter("b-001", "c-101").Number);
             Assert.AreEqual("2.1", s.Outline.FindSection("b-001", "s-1-1").Number, "sections renumber with their chapter");
             Assert.AreEqual("3.2", s.Outline.FindSection("b-001", "s-2-2").Number);
 
+            s.Outline.SetChapterName("b-001", ch.Id, "Rescue");
+            Assert.AreEqual("Rescue", s.Data.FindChapter(ch.Id).Name);
+            Assert.AreEqual("Rescue", s.Outline.FindChapter("b-001", ch.Id).Name, "the outline only echoes the name");
+            s.PlanEditor.UpdateChapter("c-101", c => c.Name = "Spotting a Confined Space");
+            Assert.AreEqual("Spotting a Confined Space", s.Outline.FindChapter("b-001", "c-101").Name, "renamed in the shot list, renamed in the outline");
+
             s.Outline.RemoveChapter("b-001", ch.Id);
+            Assert.IsNull(s.Data.FindChapter(ch.Id));
             Assert.AreEqual("1.1", s.Outline.FindSection("b-001", "s-1-1").Number);
-            Assert.AreEqual(3, s.Version);
         }
 
         [Test]
-        public void RemoveChapter_WithAssignments_BlockedUnlessCascade()
+        public void RemoveChapter_WithDependents_IsRefusedUntilConfirmed_ThenNothingIsOrphaned()
         {
             var s = Sample();
-            var ex = Assert.Throws<PlanEditBlockedException>(() => s.Outline.RemoveChapter("b-001", "c-101"));
-            Assert.AreEqual(2, ex.References.Count, "oa-001 (s-1-1) and oa-003 (s-1-2)");
-            s.Outline.RemoveChapter("b-001", "c-101", cascadeAssignments: true);
+            var impact = Deletions.ForChapter(s.Data, "c-101");
+            Assert.AreEqual(2, impact.Videos.Count);
+            Assert.AreEqual(2, impact.Sections.Count);
+            Assert.AreEqual(2, impact.PlacedMedia, "oa-001 (s-1-1) and oa-003 (s-1-2)");
+            Assert.AreEqual(1, impact.Notes);
+            Assert.AreEqual(1, impact.Captures);
+            CollectionAssert.AreEqual(new[] { "c-102" }, impact.MoveTargets.Select(c => c.Id).ToList(), "the dialog can offer somewhere for the videos to go");
+            Assert.IsTrue(impact.NeedsConfirm);
+            Assert.Throws<PlanEditBlockedException>(() => s.Outline.RemoveChapter("b-001", "c-101"));
+
+            s.Outline.RemoveChapter("b-001", "c-101", cascade: true, moveContentsTo: "c-102");
+            Assert.IsNull(s.Data.FindChapter("c-101"));
+            Assert.AreEqual("c-102", s.Data.FindVideo("v-001").ChapterId, "planned videos moved, not lost");
+            Assert.AreEqual("c-102", s.Data.FindCapture("cap-001").ChapterId, "the capture follows and is never deleted");
+            Assert.AreEqual(4, s.Data.Captures.Captures.Count);
             Assert.AreEqual(1, s.Data.Captures.OutlineAssignments.Count);
             Assert.AreEqual("oa-002", s.Data.Captures.OutlineAssignments[0].Id);
+            Assert.IsEmpty(s.Data.Captures.Notes);
             Assert.AreEqual(1, s.Outline.FindChapter("b-001", "c-102").Number);
+            Assert.AreEqual(HeroType.None, s.Data.FindPhoto("ph-002").HeroType, "c-102 already has a hero, so the moved one becomes an ordinary photo");
+            Assert.IsEmpty(MediaTrip.Validation.TripValidator.Validate(s.Data));
+        }
+
+        [Test]
+        public void RemoveChapter_WithNowhereToMove_DetachesTheVideos()
+        {
+            var s = Sample();
+            s.Outline.RemoveChapter("b-001", "c-102", cascade: true);
+            Assert.IsNull(s.Data.FindVideo("v-003"));
+            var cap = s.Data.FindCapture("cap-002");
+            Assert.IsNotNull(cap, "the capture is kept");
+            Assert.IsNull(cap.PlanVideoId);
+            Assert.IsNull(cap.ChapterId);
+            Assert.AreEqual(3, cap.PlannedNumber, "it still says what it was shot against");
+            Assert.IsFalse(s.Data.Captures.Amendments.Any(a => a.Id == "am-002"), "the rename of the removed video goes with it");
+            Assert.IsEmpty(MediaTrip.Validation.TripValidator.Validate(s.Data));
         }
 
         [Test]
@@ -79,15 +119,31 @@ namespace MediaTrip.Tests
         }
 
         [Test]
-        public void ChapterNotes_AndHeader()
+        public void Header_KeepsItsIdentity()
         {
             var s = Sample();
-            s.Outline.SetChapterNotes("b-001", "c-102", "Open on the meter.");
-            Assert.AreEqual("Open on the meter.", s.Outline.FindChapter("b-001", "c-102").Notes);
             s.Outline.UpdateHeader("b-001", o => { o.ProgramName = "WDG"; o.BookId = "hacked"; o.Chapters = null; });
             Assert.AreEqual("WDG", s.Data.Outlines["b-001"].ProgramName);
             Assert.AreEqual("b-001", s.Data.Outlines["b-001"].BookId);
             Assert.AreEqual(2, s.Data.Outlines["b-001"].Chapters.Count);
+        }
+
+        [Test]
+        public void DeleteSection_UnassignsItsMedia_WhichIsThenListedAsUnplaced()
+        {
+            var s = Sample();
+            s.SetNote("b-001", "c-101", "s-1-1", "Pull quote here.");
+            var impact = Deletions.ForSection(s.Data, "b-001", "s-1-1");
+            Assert.AreEqual(1, impact.PlacedMedia);
+            Assert.AreEqual(1, impact.Notes);
+            Assert.IsEmpty(s.Queries.UnplacedIn("c-101"));
+
+            Deletions.DeleteSection(s, "b-001", "s-1-1");
+            Assert.IsNull(s.Outline.FindSection("b-001", "s-1-1"));
+            Assert.IsNotNull(s.Data.FindCapture("cap-001"), "the media stays in the book");
+            CollectionAssert.AreEqual(new[] { "cap-001" }, s.Queries.UnplacedIn("c-101").Select(e => e.Id).ToList(), "listed on the chapter so it can be placed again");
+            Assert.AreEqual("", s.NoteText("c-101", "s-1-1"));
+            Assert.AreEqual("1.1", s.Outline.FindSection("b-001", "s-1-2").Number);
         }
 
         [Test]

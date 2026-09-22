@@ -3,25 +3,30 @@ using System;
 namespace MediaTrip.UI.Transfer
 {
     /// <summary>
-    /// A platform file picker. The same UI code runs in the Editor (EditorUtility panels),
-    /// in a standalone build (a folder under persistentDataPath), and on iOS (the native
-    /// UIDocumentPicker plugin). Callbacks always arrive on the main thread.
+    /// The platform's two file gestures. The same UI code runs in the Editor (OS dialogs),
+    /// in a standalone build (a known folder), and on iOS (the native plugin). Callbacks
+    /// always arrive on the main thread; a null message on cancel means a plain cancel.
     /// </summary>
     public interface IFilePicker
     {
-        /// <summary>Human-readable name of the route, e.g. "Files app", "file dialog".</summary>
+        /// <summary>Human-readable name of the route, e.g. "Files app", "file dialog", "app folder".</summary>
         string Name { get; }
 
-        /// <summary>True when a real picker can be shown on this platform.</summary>
+        /// <summary>True when a real file chooser can be shown for import on this platform.</summary>
         bool CanPick { get; }
 
-        /// <summary>Let the user pick a .zip or .json to import. onPicked gets a readable local path. onCancelled gets a message (null for a plain cancel).</summary>
-        void PickImport(Action<string> onPicked, Action<string> onCancelled);
+        /// <summary>
+        /// Let the user pick a file to import. onPicked gets a readable local path.
+        /// <paramref name="extensionsCsv"/> narrows what the chooser offers: "zip,json" for
+        /// anything, "json" when one kind of document is being imported.
+        /// </summary>
+        void PickImport(Action<string> onPicked, Action<string> onCancelled, string extensionsCsv = "zip,json");
 
-        /// <summary>Let the user save a file somewhere (Files app, iCloud, a folder). onDone gets a message for the toast.</summary>
-        void ExportFile(string sourcePath, Action<string> onDone, Action<string> onCancelled);
-
-        /// <summary>Share sheet (AirDrop, Mail, ...) on iOS; reveal in the OS file browser elsewhere.</summary>
-        void ShareFile(string sourcePath, Action<string> onDone, Action<string> onCancelled);
+        /// <summary>
+        /// Share a file the app has written: the iOS share sheet (Files, AirDrop, Mail...), a
+        /// save dialog in the Editor, or a default folder in a standalone build. onDone gets a
+        /// message for the toast.
+        /// </summary>
+        void Share(string sourcePath, Action<string> onDone, Action<string> onCancelled);
     }
 }

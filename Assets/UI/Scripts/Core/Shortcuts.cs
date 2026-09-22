@@ -5,8 +5,8 @@ namespace MediaTrip.UI
 {
     /// <summary>
     /// Keyboard accelerators. Every one of these is a second way to reach an action that also
-    /// has a tap target; nothing here is keyboard-only. Cmd on the iPad and Ctrl on the laptop
-    /// are treated the same.
+    /// has a tap target; nothing here is keyboard-only except moving a bullet up or down.
+    /// Cmd on the iPad and Ctrl on the laptop are treated the same.
     /// </summary>
     public static class Shortcuts
     {
@@ -51,7 +51,14 @@ namespace MediaTrip.UI
         {
             // Tab inside an outliner row is indent/outdent, not focus navigation.
             var tf = FocusedField(app.Root);
-            if (tf == null || !(tf.name ?? "").StartsWith("node:")) return;
+            var n = tf?.name ?? "";
+            if (n.StartsWith("os:") && e.direction == NavigationMoveEvent.Direction.Next && app.NameKeyAction != null)
+            {
+                // Tab in a section name goes into its bullets rather than to the next control.
+                if (app.NameKeyAction(n, "tab")) Consume(e);
+                return;
+            }
+            if (tf == null || !n.StartsWith("node:")) return;
             if (e.direction == NavigationMoveEvent.Direction.Next || e.direction == NavigationMoveEvent.Direction.Previous)
             {
                 if (app.AccessoryAction != null && app.AccessoryAction(e.direction == NavigationMoveEvent.Direction.Next ? "in" : "out"))
@@ -61,59 +68,65 @@ namespace MediaTrip.UI
 
         private static void OnKey(AppController app, KeyDownEvent e)
         {
+            if (e.keyCode == KeyCode.Escape)
+            {
+                if (app.CloseTop()) { Consume(e); return; }
+                var focused = FocusedField(app.Root);
+                if (focused != null) { focused.Blur(); app.State.Focus = null; Consume(e); }
+                return;
+            }
             if (app.Session == null) return;
             var meta = IsMeta(e);
-            var state = app.State;
             var tf = FocusedField(app.Root);
-            var fieldName = tf?.name ?? "";
-            var inNode = fieldName.StartsWith("node:");
+            var inNode = (tf?.name ?? "").StartsWith("node:");
 
-            // ---- everywhere
-            if (meta && e.keyCode == KeyCode.Slash) { state.Help = !state.Help; app.Render(); Consume(e); return; }
-            if (meta && e.keyCode == KeyCode.F) { state.Focus = "q"; app.Render(); Consume(e); return; }
-            if (meta && e.keyCode == KeyCode.S) { app.Session.SaveNow(); app.Toast("Saved · autosave is on anyway"); Consume(e); return; }
-            if (meta && state.Mode == Mode.Author && e.keyCode >= KeyCode.Alpha1 && e.keyCode <= KeyCode.Alpha7)
+            if (meta && e.keyCode == KeyCode.F) { app.State.Search = app.State.Search ?? ""; app.RenderKeepFocus("search"); Consume(e); return; }
+            if (meta && e.keyCode == KeyCode.S) { app.Session.SaveNow(); app.Toast("Saved"); Consume(e); return; }
+            if (meta && e.shiftKey && e.keyCode == KeyCode.J) { app.OpenDebug(); Consume(e); return; }
+            if (meta && e.keyCode == KeyCode.E && Screens.HasEdit(app.State.Screen)) { app.ToggleEdit(); Consume(e); return; }
+            if (meta && !e.shiftKey && e.keyCode >= KeyCode.Alpha1 && e.keyCode <= KeyCode.Alpha5)
             {
-                int idx = e.keyCode - KeyCode.Alpha1;
-                app.Nav(Screens.AuthorTabs[idx]);
+                app.Nav(Screens.Tabs[e.keyCode - KeyCode.Alpha1]);
                 Consume(e);
                 return;
             }
-            if (e.keyCode == KeyCode.Escape)
+
+            if (meta && (e.keyCode == KeyCode.RightBracket || e.keyCode == KeyCode.LeftBracket))
             {
-                if (state.Help) { state.Help = false; app.Render(); Consume(e); return; }
-                if (app.HasSheet) { app.CloseSheet(); Consume(e); return; }
-                if (state.Amend != null) { state.Amend = null; app.Render(); Consume(e); return; }
-                if (state.DetailItemId != null) { state.DetailItemId = null; app.Render(); Consume(e); return; }
-                if (state.SL.Paste != null) { state.SL.Paste = null; app.Render(); Consume(e); return; }
-                if (state.OL.Paste != null) { state.OL.Paste = null; app.Render(); Consume(e); return; }
-                if (state.IO.PasteOpen) { state.IO.PasteOpen = false; app.Render(); Consume(e); return; }
-                if (state.AmendEdit != null) { state.AmendEdit = null; app.Render(); Consume(e); return; }
-                if (tf != null) { tf.Blur(); state.Focus = null; Consume(e); return; }
-                if (!string.IsNullOrEmpty(state.Query)) { state.Query = ""; app.Render(); Consume(e); return; }
-                return;
+                var open = e.keyCode == KeyCode.RightBracket;
+                if (app.State.Screen == Screen.ShotList) { MediaTrip.UI.Docs.ShotListScreen.ExpandAll(app, open); Consume(e); return; }
+                if (app.State.Screen == Screen.Outlines) { MediaTrip.UI.Docs.OutlinesScreen.ExpandAll(app, open); Consume(e); return; }
             }
 
-            // ---- outliner and list accelerators (the accessory bar's keyboard twins)
-            if (app.AccessoryAction != null)
+            // ---- chapter and section names in the outline editor: the whole outline can be typed from the keyboard
+            var fieldName = tf?.name ?? "";
+            if (app.NameKeyAction != null && (fieldName.StartsWith("oc:") || fieldName.StartsWith("os:")))
+            {
+                string nameAct = null;
+                if (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter) nameAct = meta ? "chapter" : "enter";
+                else if (e.keyCode == KeyCode.Tab && !e.shiftKey) nameAct = "tab";
+                else if (e.altKey && e.keyCode == KeyCode.UpArrow) nameAct = "moveup";
+                else if (e.altKey && e.keyCode == KeyCode.DownArrow) nameAct = "movedown";
+                else if (e.keyCode == KeyCode.UpArrow) nameAct = "prev";
+                else if (e.keyCode == KeyCode.DownArrow) nameAct = "next";
+                else if (e.keyCode == KeyCode.Backspace && string.IsNullOrEmpty(tf.value)) nameAct = "del";
+                if (nameAct != null && app.NameKeyAction(fieldName, nameAct)) { Consume(e); return; }
+            }
+
+            // ---- the outliner's structural keys
+            if (app.AccessoryAction != null && inNode)
             {
                 string act = null;
-                bool inTextOfOutliner = inNode;
-                bool listContext = tf == null || inNode || fieldName.StartsWith("video:") || fieldName.StartsWith("chapter:") || fieldName.StartsWith("photo:") || fieldName.StartsWith("os:") || fieldName.StartsWith("oc:");
-                if (!listContext) return;
                 if (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter) act = e.shiftKey ? "child" : "sib";
-                else if (e.keyCode == KeyCode.Tab && inTextOfOutliner) act = e.shiftKey ? "out" : "in";
+                else if (e.keyCode == KeyCode.Tab) act = e.shiftKey ? "out" : "in";
                 else if (e.altKey && e.keyCode == KeyCode.UpArrow) act = "up";
                 else if (e.altKey && e.keyCode == KeyCode.DownArrow) act = "down";
-                else if (meta && e.keyCode == KeyCode.D) act = "dup";
                 else if (meta && e.keyCode == KeyCode.Backspace) act = "del";
-                else if (e.keyCode == KeyCode.Backspace && inTextOfOutliner && string.IsNullOrEmpty(tf.value)) act = "del";
-                else if (meta && e.shiftKey && e.keyCode == KeyCode.V) act = "paste";
-                else if ((e.keyCode == KeyCode.UpArrow || e.keyCode == KeyCode.DownArrow) && !e.altKey && (inNode || tf == null)) act = e.keyCode == KeyCode.UpArrow ? "prev" : "next";
+                else if (e.keyCode == KeyCode.Backspace && string.IsNullOrEmpty(tf.value)) act = "del";
+                else if (e.keyCode == KeyCode.UpArrow && !e.altKey) act = "prev";
+                else if (e.keyCode == KeyCode.DownArrow && !e.altKey) act = "next";
                 if (act != null && app.AccessoryAction(act)) { Consume(e); return; }
             }
-
-            if (app.ScreenKeys != null && tf == null && app.ScreenKeys(e)) { Consume(e); }
         }
     }
 }

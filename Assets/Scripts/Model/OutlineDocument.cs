@@ -13,13 +13,21 @@ namespace MediaTrip.Model
         public List<OutlineChapter> Chapters { get; set; } = new List<OutlineChapter>();
     }
 
+    /// <summary>
+    /// The outline's sections for one chapter. The chapter itself is the shot list's
+    /// <see cref="Chapter"/> with the same <see cref="Id"/>: the outline attaches to it and does
+    /// not own it. <see cref="Number"/> and <see cref="Name"/> are an echo of that chapter,
+    /// refreshed by <see cref="TripNormalizer"/>, written so a single outline file can still be
+    /// matched by number then name when it is imported somewhere the ids differ.
+    /// </summary>
     public class OutlineChapter
     {
         public string Id { get; set; }
         public int Number { get; set; }
         public string Name { get; set; }
         public List<OutlineSection> Sections { get; set; } = new List<OutlineSection>();
-        /// <summary>Per-chapter notes area.</summary>
+        /// <summary>Read only, for files written before notes were unified; moved to captures.json notes on load.</summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string Notes { get; set; }
         [JsonExtensionData] public IDictionary<string, JToken> Extra { get; set; }
     }

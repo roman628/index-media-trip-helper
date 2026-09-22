@@ -56,6 +56,64 @@ namespace MediaTrip.UI
             return sv;
         }
 
+        public static ScrollView Named(this ScrollView sv, string name) { sv.name = name; return sv; }
+
+        /// <summary>Padding inside the scrolled content. Padding on the ScrollView itself would shrink its viewport.</summary>
+        public static ScrollView ContentPad(this ScrollView sv, float top, float right, float bottom, float left)
+        {
+            var c = sv.contentContainer.style;
+            c.paddingTop = top; c.paddingRight = right; c.paddingBottom = bottom; c.paddingLeft = left;
+            return sv;
+        }
+
+        /// <summary>A single row that scrolls sideways (day chips, the section index in portrait).</summary>
+        public static ScrollView ScrollX(params VisualElement[] children)
+        {
+            var sv = new ScrollView(ScrollViewMode.Horizontal);
+            sv.AddToClassList("scrollx");
+            sv.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
+            sv.verticalScrollerVisibility = ScrollerVisibility.Hidden;
+            sv.touchScrollBehavior = ScrollView.TouchScrollBehavior.Elastic;
+            foreach (var c in children) if (c != null) sv.Add(c);
+            return sv;
+        }
+
+        /// <summary>A small quiet tag after a title: "new", "revised", "was 4".</summary>
+        public static VisualElement Tag(string text, string classes = "")
+        {
+            var v = new VisualElement().Cls("tag " + classes);
+            v.Add(Text(Esc(text)));
+            return v;
+        }
+
+        /// <summary>
+        /// A name that may be long. Collapsed it is one line with an ellipsis; expanded (the row
+        /// it belongs to was tapped open) it wraps and shows in full.
+        /// </summary>
+        public static Label Name(string text, bool expanded, string classes = "")
+        {
+            var l = Text(text, classes + (expanded ? " wraptext" : " ellipsis"));
+            l.style.flexShrink = 1;
+            return l;
+        }
+
+        /// <summary>The expand / collapse arrow of a row that opens in place.</summary>
+        public static Glyph Chevron(bool open, float size = 18)
+        {
+            var g = new Glyph(open ? GlyphKind.ChevronDown : GlyphKind.ChevronRight, size);
+            g.AddToClassList("chev");
+            return g;
+        }
+
+        /// <summary>A key / value line of a read-only document.</summary>
+        public static VisualElement KV(string key, string value)
+        {
+            var r = new VisualElement().Cls("kv");
+            r.Add(Text(key, "k"));
+            r.Add(Text(value, "v"));
+            return r;
+        }
+
         // ------------------------------------------------------------------ text
         public static Label Text(string text, string classes = null)
         {
@@ -102,6 +160,27 @@ namespace MediaTrip.UI
             return b;
         }
 
+        /// <summary>A 50 px square button holding one glyph (header and row actions).</summary>
+        public static Button IconBtn(GlyphKind kind, Action onClick, string classes = "ghost", float glyphSize = 22)
+        {
+            var b = new Button(onClick) { text = "" };
+            b.Cls("btn ic " + classes);
+            b.Add(new Glyph(kind, glyphSize));
+            return b;
+        }
+
+        /// <summary>The quiet "+ Line" / "+ Bullet" button used in edit states.</summary>
+        public static Button AddBtn(string text, Action onClick) => Btn("+ " + text, onClick, "sm ghost add");
+
+        /// <summary>Glyph followed by text, for rows that need a symbol the font may not have.</summary>
+        public static VisualElement GlyphText(GlyphKind kind, Label label, float size = 18)
+        {
+            var g = new Glyph(kind, size); g.style.marginRight = 8;
+            var r = Row(g, label);
+            r.style.flexShrink = 1;
+            return r;
+        }
+
         public static VisualElement Kbd(string keys)
         {
             var v = new VisualElement().Cls("kbd");
@@ -125,7 +204,8 @@ namespace MediaTrip.UI
             var v = new VisualElement().Cls("chip " + classes);
             v.Add(Text(text).Bold());
             var x = Tap(onRemove, "", new Glyph(GlyphKind.Cross, 14));
-            x.style.marginLeft = 10; x.style.width = 32; x.style.height = 32; x.style.alignItems = Align.Center; x.style.justifyContent = Justify.Center;
+            // a full 44 pt target that reaches the chip's rounded end
+            x.style.marginLeft = 2; x.style.marginRight = -12; x.style.width = 44; x.style.height = 44; x.style.alignItems = Align.Center; x.style.justifyContent = Justify.Center;
             v.Add(x);
             return v;
         }
@@ -186,11 +266,11 @@ namespace MediaTrip.UI
         {
             switch (s)
             {
-                case PlanItemStatus.Captured: return Pill("Captured", "fill", GlyphKind.Check);
+                case PlanItemStatus.Captured: return Pill("Filmed", "fill", GlyphKind.Check);
                 case PlanItemStatus.PartiallyCaptured: return Pill("Partial", "warn", GlyphKind.Half);
                 case PlanItemStatus.Dropped: return Pill("Dropped", "bad", GlyphKind.Cross);
-                case PlanItemStatus.Superseded: return Pill("Superseded", "", GlyphKind.Arrow);
-                default: return Pill("Not captured", "", GlyphKind.Ring);
+                case PlanItemStatus.Superseded: return Pill("Combined", "", GlyphKind.Arrow);
+                default: return Pill("Planned", "", GlyphKind.Ring);
             }
         }
 
@@ -230,7 +310,7 @@ namespace MediaTrip.UI
             b.Cls("tog plain").On(on);
             b.Add(Text(text));
             var knob = new VisualElement().Cls("knob");
-            knob.Add(new VisualElement().Cls("dot"));
+            knob.Add(new VisualElement().Cls("thumb"));   // not "dot": that class is the issue marker and carries its margin
             b.Add(knob);
             return b;
         }
@@ -320,6 +400,24 @@ namespace MediaTrip.UI
             if (t == null) return iso ?? "";
             return t.Value.ToLocalTime().ToString("ddd h:mm tt", CultureInfo.InvariantCulture);
         }
+
+        /// <summary>"9:40 AM" from an ISO timestamp; "" when there is none.</summary>
+        public static string FmtTime(string iso)
+        {
+            var t = PlanResolver.ParseTimestamp(iso);
+            if (t == null) return "";
+            var local = (iso ?? "").EndsWith("Z", StringComparison.OrdinalIgnoreCase) || HasOffset(iso) ? t.Value.ToLocalTime() : t.Value;
+            return local.ToString("h:mm tt", CultureInfo.InvariantCulture);
+        }
+
+        private static bool HasOffset(string iso)
+        {
+            if (string.IsNullOrEmpty(iso) || iso.Length < 6) return false;
+            var tail = iso.Substring(iso.Length - 6);
+            return (tail[0] == '+' || tail[0] == '-') && tail[3] == ':';
+        }
+
+        public static T Also<T>(this T v, Action<T> a) where T : VisualElement { a(v); return v; }
 
         public static string Plural(int n, string one, string many = null) => n + " " + (n == 1 ? one : (many ?? one + "s"));
 
